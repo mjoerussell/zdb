@@ -24,8 +24,8 @@ pub fn default(value: anytype) SqlParameter(EraseComptime(@TypeOf(value))) {
     
     var result = SqlParameter(ValueType){
         .value = value,
-        .sql_type = comptime odbc.Types.SqlType.fromType(ValueType) orelse @compileError("Cannot get default SqlType for type " ++ @typeName(T)),
-        .c_type = comptime odbc.Types.CType.fromType(ValueType) orelse @compileError("Cannot get default CType for type " ++ @typeName(T)),
+        .sql_type = comptime odbc.Types.SqlType.fromType(ValueType) orelse @compileError("Cannot get default SqlType for type " ++ @typeName(ValueType)),
+        .c_type = comptime odbc.Types.CType.fromType(ValueType) orelse @compileError("Cannot get default CType for type " ++ @typeName(ValueType)),
     };
 
     if (std.meta.trait.isFloat(@TypeOf(value))) {
