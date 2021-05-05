@@ -34,11 +34,19 @@ pub fn main() !void {
 
     std.debug.print("Rows fetched: {}\n", .{result_set.rows_fetched});
 
-    while (try result_set.next()) |result| {
+    var query_results = try result_set.getAllRows();
+    defer {
+        for (query_results) |*q| q.deinit(allocator);
+        allocator.free(query_results);
+    }
+
+    // while (try result_set.next()) |*result| {
+    for (query_results) |result| {
         std.debug.print("Id: {}\n", .{result.id});
         std.debug.print("Name: {s}\n", .{result.name});
         std.debug.print("Occupation: {s}\n", .{result.occupation});
         std.debug.print("Age: {}\n", .{result.age});
+        // result.deinit(allocator);
     }
 
 }

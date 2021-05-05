@@ -87,6 +87,16 @@ pub fn ResultSet(comptime Base: type) type {
             self.allocator.free(self.row_status);
         }
 
+        pub fn getAllRows(self: *Self) ![]Base {
+            var results = std.ArrayList(Base).init(self.allocator);
+
+            while (try self.next()) |item| {
+                try results.append(item);
+            }
+
+            return results.toOwnedSlice();
+        }
+
         pub fn next(self: *Self) !?Base {
             if (self.current_row >= self.rows_fetched) {
                 // Because of the param binding in PreparedStatement.fetch, this will update self.rows_fetched
@@ -104,11 +114,12 @@ pub fn ResultSet(comptime Base: type) type {
                 if (self.current_row >= self.rows_fetched) return null;
 
                 const item_row = self.rows[self.current_row];
-                var item: Base = undefined;
                 
+                var item: Base = undefined;
                 inline for (std.meta.fields(Base)) |field, index| {
                     const len_or_indicator = @field(item_row, field.name ++ "_len_or_ind");
                     if (len_or_indicator != odbc.sys.SQL_NULL_DATA) {
+                        // @fixme There's gotta be a cleaner way to do this
                         switch (@typeInfo(field.field_type)) {
                             .Array => {
                                 if (len_or_indicator == odbc.sys.SQL_NTS) {
