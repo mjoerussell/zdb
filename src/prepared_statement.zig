@@ -123,9 +123,9 @@ pub const PreparedStatement = struct {
         if (index > self.num_params) return error.InvalidParamIndex;
 
         const param_index = self.param_data.items.len;
-        if (std.meta.trait.isZigString(@TypeOf(param))) {
+        if (comptime std.meta.trait.isZigString(@TypeOf(param))) {
             try self.param_data.appendSlice(self.allocator, param);
-            self.param_indicators[index - 1] = @sizeOf(u8) * param.len;
+            self.param_indicators[index - 1] = param.len;
         } else {
             try self.param_data.appendSlice(self.allocator, std.mem.toBytes(@as(EraseComptime(@TypeOf(param)), param))[0..]);
             self.param_indicators[index - 1] = @sizeOf(EraseComptime(@TypeOf(param)));

@@ -24,12 +24,12 @@ pub fn main() !void {
     var connection = try DBConnection.init(allocator, "ODBC;driver=PostgreSQL Unicode(x64);DSN=PostgreSQL35W");
     defer connection.deinit();
 
-    var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test WHERE occupation = ?");
-    // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test WHERE age >= ?");
+    // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test WHERE occupation = ?");
+    var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test WHERE name = ? OR age < ?");
     defer prepared_statement.deinit();
 
-    try prepared_statement.addParam(1, "Taxi Driver");
-    // try prepared_statement.addParam(1, 20);
+    try prepared_statement.addParam(1, "Reese");
+    try prepared_statement.addParam(2, 30);
 
     var result_set = try prepared_statement.fetch(OdbcTestType);
     defer result_set.deinit();
@@ -47,7 +47,7 @@ pub fn main() !void {
         std.debug.print("Id: {}\n", .{result.id});
         std.debug.print("Name: {s}\n", .{result.name});
         std.debug.print("Occupation: {s}\n", .{result.occupation});
-        std.debug.print("Age: {}\n", .{result.age});
+        std.debug.print("Age: {}\n\n", .{result.age});
         // result.deinit(allocator);
     }
 
