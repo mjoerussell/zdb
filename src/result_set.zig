@@ -88,10 +88,10 @@ pub fn ResultSet(comptime Base: type) type {
         }
 
         pub fn getAllRows(self: *Self) ![]Base {
-            var results = std.ArrayList(Base).init(self.allocator);
+            var results = try std.ArrayList(Base).initCapacity(self.allocator, self.rows_fetched);
 
             while (try self.next()) |item| {
-                try results.append(item);
+                results.appendAssumeCapacity(item);
             }
 
             return results.toOwnedSlice();
@@ -119,37 +119,25 @@ pub fn ResultSet(comptime Base: type) type {
                 inline for (std.meta.fields(Base)) |field, index| {
                     const len_or_indicator = @field(item_row, field.name ++ "_len_or_ind");
                     if (len_or_indicator != odbc.sys.SQL_NULL_DATA) {
-                        // @fixme There's gotta be a cleaner way to do this
-                        switch (@typeInfo(field.field_type)) {
-                            .Array => {
-                                if (len_or_indicator == odbc.sys.SQL_NTS) {
-                                    const index_of_null_terminator = std.mem.indexOf(u8, @field(item_row, field.name)[0..], &.{ 0x00 }) orelse @field(item_row, field.name).len;
-                                    @field(item, field.name) = @field(item_row, field.name)[0..index_of_null_terminator];
-                                } else {
-                                    @field(item, field.name) = @field(item_row, field.name);
-                                }
+                        @field(item, field.name) = switch (@typeInfo(field.field_type)) {
+                            .Pointer => |info| switch (info.size) {
+                                .Slice => blk: {
+                                    // If the value is a null-terminated string, get the index of the null byte. If none is found, use the total
+                                    // length of the string. Then, allocate that much space in the result slice and copy the data into it.
+                                    const slice_length: usize = if (len_or_indicator == odbc.sys.SQL_NTS)
+                                        std.mem.indexOf(u8, @field(item_row, field.name)[0..], &.{ 0x00 }) orelse @field(item_row, field.name).len
+                                    else
+                                        @intCast(usize, len_or_indicator);
+                                    
+                                    var data_slice = try self.allocator.alloc(info.child, slice_length);
+                                    std.mem.copy(info.child, data_slice, @field(item_row, field.name)[0..slice_length]);
+                                    break :blk data_slice;
+                                },
+                                else => @field(item_row, field.name)
                             },
-                            .Pointer => |info| {
-                                switch (info.size) {
-                                    .Slice => {
-                                        if (len_or_indicator == odbc.sys.SQL_NTS) {
-                                            const index_of_null_terminator = std.mem.indexOf(u8, @field(item_row, field.name)[0..], &.{ 0x00 }) orelse @field(item_row, field.name).len;
-                                            var data_slice = try self.allocator.alloc(info.child, @intCast(usize, index_of_null_terminator));
-                                            std.mem.copy(info.child, data_slice, @field(item_row, field.name)[0..@intCast(usize, index_of_null_terminator)]);
-                                            @field(item, field.name) = data_slice;
-                                        } else {
-                                            var data_slice = try self.allocator.alloc(info.child, @intCast(usize, len_or_indicator));
-                                            std.mem.copy(info.child, data_slice, @field(item_row, field.name)[0..@intCast(usize, len_or_indicator)]);
-                                            @field(item, field.name) = data_slice;
-                                        }
-                                    },
-                                    else => {}
-                                }
-                            },
-                            else => @field(item, field.name) = @field(item_row, field.name)
-                        }
+                            else => @field(item_row, field.name)
+                        };
                     }
-
                 }
 
                 self.current_row += 1;
