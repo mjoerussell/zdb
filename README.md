@@ -73,3 +73,14 @@ while (try result_set.next()) |result| {
     std.debug.print("Age: {}\n", .{result.age});
 }
 ```
+
+### ODBC Fallthrough
+
+If you want to use this package in it's current state, then it would probably be necessary to use the ODBC bindings directly to
+supplement missing features. You can access the bindings by importing them like this:
+
+```
+const odbc = @import("zdb").odbc;
+```
+
+Please see [zig-odbc](https://github.com/mjoerussell/zig-odbc) for more information about these bindings.
