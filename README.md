@@ -9,7 +9,7 @@ interaction between the developer and the DB.
 
 To use zdb, follow these steps:
 
-1. Include this repo in your project path.
+1. Include this repo in your project path. Best way to do this is by running `git submodule add https://github.com/mjoerussell/zdb --recurse-submodules`.
 2. Add this to your project's `build.zig`:
 
 ```zig
