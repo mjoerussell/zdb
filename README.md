@@ -10,7 +10,14 @@ interaction between the developer and the DB.
 To use zdb, follow these steps:
 
 1. Include this repo in your project path.
-2. Add this to your project's `build.zig`: `exe.addPackagePath("zdb", "zdb/src/zdb.zig");`.
+2. Add this to your project's `build.zig`:
+
+```zig
+exe.addPackagePath("zdb", "zdb/src/zdb.zig");
+exe.linkLibC();
+exe.linkSystemLibrary("odbc32");
+```
+
 3. Wherever you use zdb, include `const zdb = @import("zdb");`.
 
 ## Current Features
