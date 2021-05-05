@@ -28,6 +28,7 @@ pub const DBConnection = struct {
         self.environment.deinit() catch |_| {};
     }
 
+    /// Create a prepared statement from the specified SQL statement. 
     pub fn prepareStatement(self: *DBConnection, comptime sql_statement: []const u8) !PreparedStatement {
         const num_params: usize = comptime blk: {
             var count: usize = 0;
@@ -48,6 +49,7 @@ pub const DBConnection = struct {
             }
             return error.StatementError;
         };
+        errdefer statement.deinit() catch |_| {};
 
         try statement.prepare(sql_statement);
 
