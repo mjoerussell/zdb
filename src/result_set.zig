@@ -58,6 +58,10 @@ pub fn FetchResult(comptime Target: type) type {
                             }
                         }
                     },
+                    .Enum => |e_info| {
+                        result_fields[i * 2].field_type = e_info.tag_type;
+                        result_fields[i * 2].default_value = null;
+                    },
                     else => {}
                 }
                 result_fields[(i * 2) + 1] = TypeInfo.StructField{
@@ -190,6 +194,9 @@ pub fn ResultSet(comptime Base: type) type {
                                         @field(item, field.name) = data_slice;
                                     },
                                     else => @field(item, field.name) = row_data
+                                },
+                                .Enum => |info| {
+                                    @field(item, field.name) = @intToEnum(field.field_type, row_data);
                                 },
                                 else => @field(item, field.name) = row_data
                             }
