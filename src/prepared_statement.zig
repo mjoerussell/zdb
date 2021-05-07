@@ -38,6 +38,10 @@ pub const PreparedStatement = struct {
         self.statement.deinit() catch |_| {};
     }
 
+    pub fn execute(self: *PreparedStatement) !void {
+        _ = try self.statement.execute();
+    }
+
     /// Execute the current statement, binding the result columns to the fields of the type `Result`.
     /// Returns a ResultSet from which each row can be retrieved.
     pub fn fetch(self: *PreparedStatement, comptime Result: type) !ResultSet(Result) {
@@ -50,55 +54,9 @@ pub const PreparedStatement = struct {
         try self.statement.setAttribute(.{ .RowArraySize = 10 });
         try self.statement.setAttribute(.{ .RowStatusPointer = result_set.row_status });
         try self.statement.setAttribute(.{ .RowsFetchedPointer = &result_set.rows_fetched });
-        
-        var column_number: u16 = 1;
-        inline for (std.meta.fields(RowType)) |field| {
-            comptime if (std.mem.endsWith(u8, field.name, "_len_or_ind")) continue;
 
-            const c_type = comptime blk: {
-                if (odbc.Types.CType.fromType(field.field_type)) |c_type| {
-                    break :blk c_type;
-                } else {
-                    @compileError("CType could not be derived for " ++ @typeName(Result) ++ "." ++ field.name ++ " (" ++ @typeName(field.field_type) ++ ")");
-                }
-            };
-
-            const FieldTypeInfo = @typeInfo(field.field_type);
-            const FieldDataType = switch (FieldTypeInfo) {
-                .Pointer => FieldTypeInfo.Pointer.child,
-                .Array => FieldTypeInfo.Array.child,
-                else => field.field_type
-            };
-
-            const value_ptr: []FieldDataType = switch (FieldTypeInfo) {
-                .Pointer => switch (FieldTypeInfo.Pointer.size) {
-                    .One => @ptrCast([*]FieldDataType, @field(result_set.rows[0], field.name))[0..1],
-                    else => @field(result_set.rows[0], field.name)[0..]
-                },
-                .Array => @field(result_set.rows[0], field.name)[0..],
-                else => @ptrCast([*]FieldDataType, &@field(result_set.rows[0], field.name))[0..1]
-            };
-            
-            try self.statement.bindColumn(
-                column_number, 
-                c_type, 
-                value_ptr,
-                &@field(result_set.rows[0], field.name ++ "_len_or_ind")
-            );
-            
-            column_number += 1;
-        }
-
-        const execute_result = self.statement.execute() catch |err| {
-            var error_buf: [@sizeOf(odbc.Error.SqlState) * 3]u8 = undefined;
-            var fba = std.heap.FixedBufferAllocator.init(error_buf[0..]);
-            const errors = self.statement.getErrors(&fba.allocator) catch |_| return err;
-            for (errors) |e| {
-                std.debug.print("Execute Error: {s}\n", .{@tagName(e)});
-            }
-
-            return err;
-        };
+        try result_set.bindColumns();
+        try self.execute();
 
         self.statement.fetch() catch |err| switch (err) {
             error.StillExecuting => {},
@@ -125,7 +83,7 @@ pub const PreparedStatement = struct {
         const param_index = self.param_data.items.len;
         if (comptime std.meta.trait.isZigString(@TypeOf(param))) {
             try self.param_data.appendSlice(self.allocator, param);
-            self.param_indicators[index - 1] = param.len;
+            self.param_indicators[index - 1] = @intCast(c_longlong, param.len);
         } else {
             try self.param_data.appendSlice(self.allocator, std.mem.toBytes(@as(EraseComptime(@TypeOf(param)), param))[0..]);
             self.param_indicators[index - 1] = @sizeOf(EraseComptime(@TypeOf(param)));
@@ -143,6 +101,10 @@ pub const PreparedStatement = struct {
             sql_param.precision,
             &self.param_indicators[index - 1]
         );
+    }
+
+    pub fn addParams(self: *PreparedStatement, params: anytype) !void {
+        inline for (params) |p| try self.addParam(p[0], p[1]);
     }
 
     /// Close any open cursor on this statement. If no cursor is open, do nothing.

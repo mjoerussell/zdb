@@ -36,8 +36,23 @@ pub fn FetchResult(comptime Target: type) type {
                     .Pointer => |info| {
                         if (info.size == .Slice) {
                             // If the base type is a slice, the corresponding FetchResult type should be an array
-                            result_fields[i * 2].field_type = [200]info.child;
+                            result_fields[i * 2].field_type = [200:0]info.child;
                             result_fields[i * 2].default_value = null;
+                        }
+                    },
+                    .Optional => |op_info| {
+                        switch (@typeInfo(op_info.child)) {
+                            .Pointer => |info| {
+                                if (info.size == .Slice) {
+                                    // If the base type is a slice, the corresponding FetchResult type should be an array
+                                    result_fields[i * 2].field_type = [200]info.child;
+                                    result_fields[i * 2].default_value = null;
+                                }  
+                            },
+                            else => {
+                                result_fields[i * 2].field_type = op_info.child;
+                                result_fields[i * 2].default_value = null;
+                            }
                         }
                     },
                     else => {}
@@ -117,27 +132,233 @@ pub fn ResultSet(comptime Base: type) type {
                 
                 var item: Base = undefined;
                 inline for (std.meta.fields(Base)) |field, index| {
+                    const row_data = @field(item_row, field.name);
                     const len_or_indicator = @field(item_row, field.name ++ "_len_or_ind");
-                    if (len_or_indicator != odbc.sys.SQL_NULL_DATA) {
-                        @field(item, field.name) = switch (@typeInfo(field.field_type)) {
-                            .Pointer => |info| switch (info.size) {
-                                .Slice => blk: {
+
+                    std.debug.print("Getting field {s}\n", .{field.name});
+
+                    const field_type_info = @typeInfo(field.field_type);
+                    if (field_type_info == .Optional) {
+                        if (len_or_indicator == odbc.sys.SQL_NULL_DATA) {
+                            @field(item, field.name) = null;
+                        } else {
+                            const child_info = @typeInfo(field_type_info.Optional.child);
+                            // @compileLog(@typeName(field.field_type));
+                            
+                            if (child_info == .Pointer) {
+                                if (child_info.Pointer.size == .Slice) {
                                     // If the value is a null-terminated string, get the index of the null byte. If none is found, use the total
                                     // length of the string. Then, allocate that much space in the result slice and copy the data into it.
+                                    // const item_data = @field(item_row, field.name);
+
                                     const slice_length: usize = if (len_or_indicator == odbc.sys.SQL_NTS)
-                                        std.mem.indexOf(u8, @field(item_row, field.name)[0..], &.{ 0x00 }) orelse @field(item_row, field.name).len
+                                        std.mem.indexOf(u8, row_data[0..], &.{ 0x00 }) orelse row_data.len
                                     else
                                         @intCast(usize, len_or_indicator);
                                     
-                                    var data_slice = try self.allocator.alloc(info.child, slice_length);
-                                    std.mem.copy(info.child, data_slice, @field(item_row, field.name)[0..slice_length]);
-                                    break :blk data_slice;
-                                },
-                                else => @field(item_row, field.name)
+                                    var data_slice = try self.allocator.alloc(child_info.Pointer.child, slice_length);
+                                    std.mem.copy(child_info.Pointer.child, data_slice, row_data[0..slice_length]);
+                                    
+                                    @field(item, field.name) = data_slice;
+                                }
+                            } else {
+                                @field(item, field.name) = row_data;
+                            }
+                        }
+                            
+                    } else {
+                        switch (@typeInfo(field.field_type)) {
+                            .Pointer => |info| {
+                                // @compileLog(@typeName(field.field_type));
+                                if (len_or_indicator == odbc.sys.SQL_NULL_DATA) {
+                                    if (field.default_value) |default| {
+                                        @field(item, field.name) = default;
+                                    } else {
+                                        return error.InvalidNullValue;
+                                    }
+                                } else {
+                                    switch (info.size) {
+                                        .Slice => {
+                                            // If the value is a null-terminated string, get the index of the null byte. If none is found, use the total
+                                            // length of the string. Then, allocate that much space in the result slice and copy the data into it.
+                                            // const item_data = @field(item_row, field.name);
+                                            const slice_length: usize = if (len_or_indicator == odbc.sys.SQL_NTS)
+                                                std.mem.indexOf(u8, row_data[0..], &.{ 0x00 }) orelse row_data.len
+                                            else
+                                                @intCast(usize, len_or_indicator);
+
+                                            var data_slice = try self.allocator.alloc(info.child, slice_length);
+                                            std.mem.copy(info.child, data_slice, row_data[0..slice_length]);
+                                            @field(item, field.name) = data_slice;
+                                        },
+                                        else => @field(item, field.name) = row_data
+                                    }
+                                }
+
                             },
-                            else => @field(item_row, field.name)
-                        };
+                            else => {
+                                if (len_or_indicator == odbc.sys.SQL_NULL_DATA) {
+                                    if (field.default_value) |default| {
+                                        @field(item, field.name) = default;
+                                    } else {
+                                        return error.InvalidNullValue;
+                                    }
+                                } else {
+                                    @field(item, field.name) = row_data;
+                                }
+
+                            }
+                        }
                     }
+                    
+                    // @field(item, field.name) = switch (@typeInfo(field.field_type)) {
+                    //     .Pointer => |info| blk: {
+                    //         @compileLog(@typeName(field.field_type));
+                    //         if (len_or_indicator == odbc.sys.SQL_NULL_DATA) {
+                    //             if (field.default_value) |default| {
+                    //                 break :blk default;
+                    //             } else {
+                    //                 return error.InvalidNullValue;
+                    //             }
+                    //         }
+
+                    //         switch (info.size) {
+                    //             .Slice => {
+                    //                 // If the value is a null-terminated string, get the index of the null byte. If none is found, use the total
+                    //                 // length of the string. Then, allocate that much space in the result slice and copy the data into it.
+                    //                 // const item_data = @field(item_row, field.name);
+                    //                 const slice_length: usize = if (len_or_indicator == odbc.sys.SQL_NTS)
+                    //                     std.mem.indexOf(u8, row_data[0..], &.{ 0x00 }) orelse row_data.len
+                    //                 else
+                    //                     @intCast(usize, len_or_indicator);
+
+                    //                 var data_slice = try self.allocator.alloc(info.child, slice_length);
+                    //                 std.mem.copy(info.child, data_slice, row_data[0..slice_length]);
+                    //                 break :blk data_slice;
+                    //             },
+                    //             else => break :blk row_data 
+                    //         }
+                    //     },
+                    //     // .Optional => |op_info| blk: {
+                    //     //     // @compileLog(field.name, " is optional");
+                    //     //     if (len_or_indicator == odbc.sys.SQL_NULL_DATA) break :blk null;
+                            
+                    //     //     const child_info = @typeInfo(op_info.child);
+                    //     //     // @compileLog(@typeName(field.field_type));
+                            
+                    //     //     if (child_info == .Pointer) {
+                    //     //         if (child_info.Pointer.size == .Slice) {
+                    //     //             // If the value is a null-terminated string, get the index of the null byte. If none is found, use the total
+                    //     //             // length of the string. Then, allocate that much space in the result slice and copy the data into it.
+                    //     //             // const item_data = @field(item_row, field.name);
+
+                    //     //             const slice_length: usize = if (len_or_indicator == odbc.sys.SQL_NTS)
+                    //     //                 std.mem.indexOf(u8, row_data[0..], &.{ 0x00 }) orelse row_data.len
+                    //     //             else
+                    //     //                 @intCast(usize, len_or_indicator);
+                                    
+                    //     //             var data_slice = try self.allocator.alloc(child_info.Pointer.child, slice_length);
+                    //     //             std.mem.copy(child_info.Pointer.child, data_slice, row_data[0..slice_length]);
+                                    
+                    //     //             break :blk data_slice;
+                    //     //         }
+                    //     //     }
+
+
+                    //     //     break :blk row_data;
+
+                    //     //     // switch (@typeInfo(op_info.child)) {
+                    //     //     //     .Pointer => |info| switch (info.size) {
+                    //     //     //         .Slice => {
+                    //     //     //             // If the value is a null-terminated string, get the index of the null byte. If none is found, use the total
+                    //     //     //             // length of the string. Then, allocate that much space in the result slice and copy the data into it.
+                    //     //     //             // const item_data = @field(item_row, field.name);
+
+                    //     //     //             const slice_length: usize = if (len_or_indicator == odbc.sys.SQL_NTS)
+                    //     //     //                 std.mem.indexOf(u8, row_data[0..], &.{ 0x00 }) orelse row_data.len
+                    //     //     //             else
+                    //     //     //                 @intCast(usize, len_or_indicator);
+                                        
+                    //     //     //             var data_slice = try self.allocator.alloc(info.child, slice_length);
+                    //     //     //             std.mem.copy(info.child, data_slice, row_data[0..slice_length]);
+                                        
+                    //     //     //             break :blk data_slice;
+                    //     //     //         },
+                    //     //     //         else => break :blk row_data 
+                    //     //     //     },
+                    //     //     //     else => break :blk row_data
+                    //     //     // }
+                    //     // },
+                    //     else => blk: {
+                    //         if (len_or_indicator == odbc.sys.SQL_NULL_DATA) {
+                    //             if (field.default_value) |default| {
+                    //                 break :blk default;
+                    //             } else {
+                    //                 return error.InvalidNullValue;
+                    //             }
+                    //         }
+
+                    //         break :blk row_data;
+                    //     }
+                    // };
+
+                    // @field(item, field.name) = item_data;
+
+                    // if (len_or_indicator != odbc.sys.SQL_NULL_DATA) {
+                    //     @field(item, field.name) = switch (@typeInfo(field.field_type)) {
+                    //         .Pointer => |info| switch (info.size) {
+                    //             .Slice => blk: {
+                    //                 // If the value is a null-terminated string, get the index of the null byte. If none is found, use the total
+                    //                 // length of the string. Then, allocate that much space in the result slice and copy the data into it.
+                    //                 const slice_length: usize = if (len_or_indicator == odbc.sys.SQL_NTS)
+                    //                     std.mem.indexOf(u8, @field(item_row, field.name)[0..], &.{ 0x00 }) orelse @field(item_row, field.name).len
+                    //                 else if (len_or_indicator == odbc.sys.SQL_NULL_DATA) 
+                    //                     0
+                    //                 else
+                    //                     @intCast(usize, len_or_indicator);
+
+                    //                 var data_slice = try self.allocator.alloc(info.child, slice_length);
+                    //                 std.mem.copy(info.child, data_slice, @field(item_row, field.name)[0..slice_length]);
+                    //                 break :blk data_slice;
+                    //             },
+                    //             else => @field(item_row, field.name)
+                    //         },
+                    //         .Optional => |op_info| switch (@typeInfo(op_info.child)) {
+                    //             .Pointer => |info| switch (info.size) {
+                    //                 .Slice => blk: {
+                    //                     // If the value is a null-terminated string, get the index of the null byte. If none is found, use the total
+                    //                     // length of the string. Then, allocate that much space in the result slice and copy the data into it.
+                    //                     const field_data = @field(item_row, field.name).?;
+                    //                     const slice_length: usize = if (len_or_indicator == odbc.sys.SQL_NTS)
+                    //                         std.mem.indexOf(u8, field_data[0..], &.{ 0x00 }) orelse field_data.len
+                    //                     else if (len_or_indicator == odbc.sys.SQL_NULL_DATA) 
+                    //                         0
+                    //                     else
+                    //                         @intCast(usize, len_or_indicator);
+
+                    //                     var data_slice = try self.allocator.alloc(info.child, slice_length);
+                    //                     std.mem.copy(info.child, data_slice, field_data[0..slice_length]);
+                    //                     break :blk data_slice;
+                    //                 },
+                    //                 else => @field(item_row, field.name)
+                    //             },
+                    //             else => @field(item_row, field.name)
+                    //         },
+                    //         else => @field(item_row, field.name)
+                    //     };
+                    // } else {
+                    //     switch (@typeInfo(field.field_type)) {
+                    //         .Optional => @field(item, field.name) = null,
+                    //         else => {
+                    //             if (field.default_value) |default| {
+                    //                 @field(item, field.name) = default;
+                    //             } else {
+                    //                 return error.InvalidNull;
+                    //             }
+                    //         }
+                    //     }
+                    //     // std.debug.print("Field was null\n", .{});
+                    // }
                 }
 
                 self.current_row += 1;
@@ -145,6 +366,68 @@ pub fn ResultSet(comptime Base: type) type {
             }
 
             return null;
+        }
+
+        pub fn bindColumns(self: *Self) !void {
+            var column_number: u16 = 1;
+            inline for (std.meta.fields(FetchResult(Base))) |field| {
+                comptime if (std.mem.endsWith(u8, field.name, "_len_or_ind")) continue;
+
+                const c_type = comptime blk: {
+                    // switch (@typeInfo(field.field_type)) {
+                    //     .Optional => |info| {
+                    //         if (odbc.Types.CType.fromType(info.child)) |c_type| {
+                    //             break :blk c_type;
+                    //         } else {
+                    //             @compileError("CType could not be derived for " ++ @typeName(Base) ++ "." ++ field.name ++ " (" ++ @typeName(field.field_type) ++ ")");
+                    //         }        
+                    //     },
+                    //     else => {
+                    //         if (odbc.Types.CType.fromType(field.field_type)) |c_type| {
+                    //             break :blk c_type;
+                    //         } else {
+                    //             @compileError("CType could not be derived for " ++ @typeName(Base) ++ "." ++ field.name ++ " (" ++ @typeName(field.field_type) ++ ")");
+                    //         }
+                    //     }
+                    // }
+                    if (odbc.Types.CType.fromType(field.field_type)) |c_type| {
+                        break :blk c_type;
+                    } else {
+                        @compileError("CType could not be derived for " ++ @typeName(Base) ++ "." ++ field.name ++ " (" ++ @typeName(field.field_type) ++ ")");
+                    }
+                };
+
+                const FieldTypeInfo = @typeInfo(field.field_type);
+                const FieldDataType = switch (FieldTypeInfo) {
+                    .Pointer => |info| info.child,
+                    .Array => |info| info.child,
+                    // .Optional => |op_info| switch (@typeInfo(op_info.child)) {
+                    //     .Pointer => |info| info.child,
+                    //     .Array => |info| info.child,
+                    //     else => op_info.child
+                    // },
+                    else => field.field_type
+                };
+
+                const value_ptr: []FieldDataType = switch (FieldTypeInfo) {
+                    .Pointer => switch (FieldTypeInfo.Pointer.size) {
+                        .One => @ptrCast([*]FieldDataType, @field(self.rows[0], field.name))[0..1],
+                        else => @field(self.rows[0], field.name)[0..]
+                    },
+                    .Array => @field(self.rows[0], field.name)[0..],
+                    // .Optional => |op_info| 
+                    else => @ptrCast([*]FieldDataType, &@field(self.rows[0], field.name))[0..1]
+                };
+                
+                try self.statement.bindColumn(
+                    column_number, 
+                    c_type, 
+                    value_ptr,
+                    &@field(self.rows[0], field.name ++ "_len_or_ind")
+                );
+                
+                column_number += 1;
+            }
         }
 
     };
