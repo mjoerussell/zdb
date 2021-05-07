@@ -55,7 +55,6 @@ pub const PreparedStatement = struct {
         try self.statement.setAttribute(.{ .RowStatusPointer = result_set.row_status });
         try self.statement.setAttribute(.{ .RowsFetchedPointer = &result_set.rows_fetched });
 
-        try result_set.bindColumns();
         try self.execute();
 
         self.statement.fetch() catch |err| switch (err) {

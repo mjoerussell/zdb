@@ -135,17 +135,7 @@ pub const DBConnection = struct {
 
     /// Get information about the columns of a given table.
     pub fn getColumns(self: *DBConnection, catalog_name: []const u8, schema_name: []const u8, table_name: []const u8) ![]Column {
-        var statement = odbc.Statement.init(&self.connection, self.allocator) catch |stmt_err| {
-            var error_buf: [@sizeOf(odbc.Error.SqlState) * 3]u8 = undefined;
-            var fba = std.heap.FixedBufferAllocator.init(error_buf[0..]);
-
-            const errors = try self.connection.getErrors(&fba.allocator);
-
-            for (errors) |e| {
-                std.debug.print("Statement init error: {s}\n", .{@tagName(e)});
-            }
-            return error.StatementError;
-        };
+        var statement = try self.getStatement();
         defer statement.deinit() catch |_| {};
 
         var result_set = try ResultSet(Column).init(&statement, self.allocator);
@@ -155,8 +145,6 @@ pub const DBConnection = struct {
         try statement.setAttribute(.{ .RowArraySize = 10 });
         try statement.setAttribute(.{ .RowStatusPointer = result_set.row_status });
         try statement.setAttribute(.{ .RowsFetchedPointer = &result_set.rows_fetched });
-
-        try result_set.bindColumns();
 
         try statement.columns(catalog_name, schema_name, table_name, null);
 
@@ -176,5 +164,9 @@ pub const DBConnection = struct {
         };
 
         return try result_set.getAllRows();
+    }
+
+    pub fn getStatement(self: *DBConnection) !odbc.Statement {
+        return try odbc.Statement.init(&self.connection, self.allocator);
     }
 };

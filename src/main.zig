@@ -28,22 +28,22 @@ pub fn main() !void {
 
     // try connection.insert(OdbcTestType, "odbc_zig_test", &.{
     //     .{
-    //         .id = 4,
-    //         .name = "Winry",
-    //         .occupation = "Boat Saleswoman",
-    //         .age = 28
+    //         .id = 5,
+    //         .name = "Jeff",
+    //         .occupation = "Accountant",
+    //         .age = 45
     //     }
     // });
 
     // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test WHERE occupation = ?");
-    var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test WHERE name = ? OR age < ?");
-    // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test");
+    // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test WHERE name = ? OR age < ?");
+    var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test");
     defer prepared_statement.deinit();
 
-    try prepared_statement.addParams(.{
-        .{1, "Reese"},
-        .{2, 30},
-    });
+    // try prepared_statement.addParams(.{
+    //     .{1, "Reese"},
+    //     .{2, 30},
+    // });
 
     var result_set = try prepared_statement.fetch(OdbcTestType);
     defer result_set.deinit();
@@ -70,6 +70,7 @@ pub fn main() !void {
     for (table_columns) |*column| {
         std.debug.print("Column Name: {s}\n", .{column.column_name});
         std.debug.print("Column Type: {s}\n", .{@tagName(@intToEnum(odbc.Types.SqlType, @intCast(c_short, column.sql_data_type)))});
+        std.debug.print("Decimal Digits: {}\n", .{column.decimal_digits});
         column.deinit(allocator);
     }
 

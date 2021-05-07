@@ -82,6 +82,8 @@ pub fn ResultSet(comptime Base: type) type {
         const Self = @This();
         const RowStatus = odbc.Types.StatementAttributeValue.RowStatus;
 
+        pub const RowType = FetchResult(Base);
+
         rows_fetched: usize = 0,
         rows: []FetchResult(Base),
         row_status: []RowStatus,
@@ -92,12 +94,16 @@ pub fn ResultSet(comptime Base: type) type {
         allocator: *Allocator,
 
         pub fn init(statement: *odbc.Statement, allocator: *Allocator) !Self {
-            return Self{
+            var self = Self{
                 .statement = statement,
                 .allocator = allocator,
-                .rows = try allocator.alloc(FetchResult(Base), 10),
+                .rows = try allocator.alloc(RowType, 10),
                 .row_status = try allocator.alloc(RowStatus, 10)
             };
+
+            try self.bindColumns();
+
+            return self;
         }
 
         pub fn deinit(self: *Self) void {
@@ -139,10 +145,16 @@ pub fn ResultSet(comptime Base: type) type {
                     const len_or_indicator = @field(item_row, field.name ++ "_len_or_ind");
 
                     const field_type_info = @typeInfo(field.field_type);
-                    if (field_type_info == .Optional) {
-                        if (len_or_indicator == odbc.sys.SQL_NULL_DATA) {
+                    if (len_or_indicator == odbc.sys.SQL_NULL_DATA) {
+                        if (field_type_info == .Optional) {
                             @field(item, field.name) = null;
+                        } else if (field.default_value) |default| {
+                            @field(item, field.name) = default;
                         } else {
+                            return error.InvalidNullValue;
+                        }
+                    } else {
+                        if (field_type_info == .Optional) {
                             const child_info = @typeInfo(field_type_info.Optional.child);
                             if (child_info == .Pointer) {
                                 if (child_info.Pointer.size == .Slice) {
@@ -160,14 +172,6 @@ pub fn ResultSet(comptime Base: type) type {
                                 }
                             } else {
                                 @field(item, field.name) = row_data;
-                            }
-                        }
-                    } else {
-                        if (len_or_indicator == odbc.sys.SQL_NULL_DATA) {
-                            if (field.default_value) |default| {
-                                @field(item, field.name) = default;
-                            } else {
-                                return error.InvalidNullValue;
                             }
                         } else {
                             switch (@typeInfo(field.field_type)) {
@@ -202,7 +206,7 @@ pub fn ResultSet(comptime Base: type) type {
 
         pub fn bindColumns(self: *Self) !void {
             var column_number: u16 = 1;
-            inline for (std.meta.fields(FetchResult(Base))) |field| {
+            inline for (std.meta.fields(RowType)) |field| {
                 comptime if (std.mem.endsWith(u8, field.name, "_len_or_ind")) continue;
 
                 const c_type = comptime blk: {
