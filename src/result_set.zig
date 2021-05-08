@@ -79,14 +79,16 @@ pub fn ResultSet(comptime Base: type) type {
         pub const RowType = FetchResult(Base);
 
         rows_fetched: usize = 0,
-        rows: []FetchResult(Base),
+        rows: []RowType,
         row_status: []RowStatus,
 
         current_row: usize = 0,
 
         statement: *odbc.Statement,
         allocator: *Allocator,
-
+        
+        /// Allocate row buffers and row status buffers and then bind the columns to those
+        /// buffers.
         pub fn init(statement: *odbc.Statement, allocator: *Allocator) !Self {
             var self = Self{
                 .statement = statement,
@@ -101,10 +103,13 @@ pub fn ResultSet(comptime Base: type) type {
         }
 
         pub fn deinit(self: *Self) void {
+            // @todo Should we unbind the columns here? Or is deallocating the bound buffers enough?
             self.allocator.free(self.rows);
             self.allocator.free(self.row_status);
         }
 
+
+        /// Fetch all of the available rows from the result set.
         pub fn getAllRows(self: *Self) ![]Base {
             var results = try std.ArrayList(Base).initCapacity(self.allocator, self.rows_fetched);
 
@@ -116,6 +121,8 @@ pub fn ResultSet(comptime Base: type) type {
         }
 
         pub fn next(self: *Self) !?Base {
+            // @todo Does this ever happen? I'm not sure if rows_fetched will be just the maximum number of rows that it can make available
+            // in buffers at the moment, or if it's the total number of rows that the query resulted in
             if (self.current_row >= self.rows_fetched) {
                 // Because of the param binding in PreparedStatement.fetch, this will update self.rows_fetched
                 // @todo async - Handle error.StillExecuting here
