@@ -40,6 +40,48 @@ pub fn main() !void {
 }
 ```
 
+### Insert Data
+
+You can insert data simply by passing in an array of structs to `DBConnection.insert()`. There are a few caveats to remember:
+
+1. The struct's fields must match the table column names, and they must all be present (unless the DB column has default values).
+2. Not all field types are valid. A few general rules for what field types can be passed currently:
+   - Numeric types
+   - `[]const u8` 'strings'
+   - Enums with numeric backing types
+   - Optional types
+   - Certain structs - see `odbc.Types.CType` and `odbc.Types.SqlType`.
+
+Here's an example of inserting data
+
+```zig
+const OdbcTestType = struct {
+    id: u8,
+    name: []u8,
+    occupation: []u8,
+    age: u32,
+};
+
+fn main() {
+    // ... initialize connection
+
+    try connection.insert(OdbcTestType, "odbc_test_zig", &.{
+        .{
+            .id = 1,
+            .name = "John",
+            .occupation = "Plumber",
+            .age = 30
+        },
+        .{
+            .id = 2,
+            .name = "Sara",
+            .occupation = "Pilot",
+            .age = 25
+        }
+    });
+}
+```
+
 ### Prepared Statements
 
 Once you have a connection, you can create prepared statements and add parameters to them.
