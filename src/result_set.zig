@@ -34,32 +34,26 @@ pub fn FetchResult(comptime Target: type) type {
 
             var result_fields: [TargetInfo.Struct.fields.len * 2]TypeInfo.StructField = undefined;
             inline for (TargetInfo.Struct.fields) |field, i| {
+                // Initialize all the fields of the StructField
                 result_fields[i * 2] = field;
-                switch (@typeInfo(field.field_type)) {
-                    .Pointer => |info| {
-                        if (info.size == .Slice) {
-                            // If the base type is a slice, the corresponding FetchResult type should be an array
-                            result_fields[i * 2].field_type = [200:0]info.child;
-                            result_fields[i * 2].default_value = null;
-                        }
+
+                // Get the target type of the generated struct
+                const field_type_info = @typeInfo(field.field_type);
+                const column_type = if (field_type_info == .Optional) field_type_info.Optional.child else field.field_type;
+                const column_field_type = switch (@typeInfo(column_type)) {
+                    .Pointer => |info| switch (info.size) {
+                        .Slice => [200]info.child,
+                        else => column_type
                     },
-                    .Optional => |op_info| {
-                        switch (@typeInfo(op_info.child)) {
-                            .Pointer => |info| {
-                                if (info.size == .Slice) {
-                                    // If the base type is a slice, the corresponding FetchResult type should be an array
-                                    result_fields[i * 2].field_type = [200]info.child;
-                                    result_fields[i * 2].default_value = null;
-                                }  
-                            },
-                            else => {
-                                result_fields[i * 2].field_type = op_info.child;
-                                result_fields[i * 2].default_value = null;
-                            }
-                        }
-                    },
-                    else => {}
-                }
+                    .Enum => |info| info.tag_type,
+                    else => column_type
+                };
+
+                // Reset the field_type and default_value to be whatever was calculated
+                // (default value is reset to null because it has to be a null of the correct type)
+                result_fields[i * 2].field_type = column_field_type;
+                result_fields[i * 2].default_value = null;
+                // Generate the len_or_ind field to coincide with the main column field
                 result_fields[(i * 2) + 1] = TypeInfo.StructField{
                     .name = field.name ++ "_len_or_ind",
                     .field_type = c_longlong,
@@ -85,14 +79,16 @@ pub fn ResultSet(comptime Base: type) type {
         pub const RowType = FetchResult(Base);
 
         rows_fetched: usize = 0,
-        rows: []FetchResult(Base),
+        rows: []RowType,
         row_status: []RowStatus,
 
         current_row: usize = 0,
 
         statement: *odbc.Statement,
         allocator: *Allocator,
-
+        
+        /// Allocate row buffers and row status buffers and then bind the columns to those
+        /// buffers.
         pub fn init(statement: *odbc.Statement, allocator: *Allocator) !Self {
             var self = Self{
                 .statement = statement,
@@ -107,10 +103,13 @@ pub fn ResultSet(comptime Base: type) type {
         }
 
         pub fn deinit(self: *Self) void {
+            // @todo Should we unbind the columns here? Or is deallocating the bound buffers enough?
             self.allocator.free(self.rows);
             self.allocator.free(self.row_status);
         }
 
+
+        /// Fetch all of the available rows from the result set.
         pub fn getAllRows(self: *Self) ![]Base {
             var results = try std.ArrayList(Base).initCapacity(self.allocator, self.rows_fetched);
 
@@ -122,6 +121,8 @@ pub fn ResultSet(comptime Base: type) type {
         }
 
         pub fn next(self: *Self) !?Base {
+            // @todo Does this ever happen? I'm not sure if rows_fetched will be just the maximum number of rows that it can make available
+            // in buffers at the moment, or if it's the total number of rows that the query resulted in
             if (self.current_row >= self.rows_fetched) {
                 // Because of the param binding in PreparedStatement.fetch, this will update self.rows_fetched
                 // @todo async - Handle error.StillExecuting here
@@ -139,6 +140,8 @@ pub fn ResultSet(comptime Base: type) type {
 
                 const item_row = self.rows[self.current_row];
                 
+                // Get each field of Base from the current RowType value and convert it back
+                // to its original form
                 var item: Base = undefined;
                 inline for (std.meta.fields(Base)) |field| {
                     const row_data = @field(item_row, field.name);
@@ -146,6 +149,10 @@ pub fn ResultSet(comptime Base: type) type {
 
                     const field_type_info = @typeInfo(field.field_type);
                     if (len_or_indicator == odbc.sys.SQL_NULL_DATA) {
+                        // Handle null data. For Optional types, set the field to null. For non-optional types with
+                        // a default value given, set the field to the default value. For all others, return
+                        // an error
+                        // @todo Not sure if an error is the most appropriate here, but it works for now
                         if (field_type_info == .Optional) {
                             @field(item, field.name) = null;
                         } else if (field.default_value) |default| {
@@ -154,46 +161,31 @@ pub fn ResultSet(comptime Base: type) type {
                             return error.InvalidNullValue;
                         }
                     } else {
-                        if (field_type_info == .Optional) {
-                            const child_info = @typeInfo(field_type_info.Optional.child);
-                            if (child_info == .Pointer) {
-                                if (child_info.Pointer.size == .Slice) {
-                                    // If the value is a null-terminated string, get the index of the null byte. If none is found, use the total
-                                    // length of the string. Then, allocate that much space in the result slice and copy the data into it.
+                        // If the field in Base is optional, we just want to deal with its child type. The possibility of
+                        // the value being null was handled above, so we can assume it's not here
+                        const child_info = if (field_type_info == .Optional) @typeInfo(field_type_info.Optional.child) else field_type_info;
+                        @field(item, field.name) = switch (child_info) {
+                            .Pointer => |info| switch (info.size) {
+                                .Slice => blk: {
+                                    // For slices, we want to allocate enough memory to hold the (presumably string) data
+                                    // The string length might be indicated by a null byte, or it might be in len_or_indicator.
                                     const slice_length: usize = if (len_or_indicator == odbc.sys.SQL_NTS)
                                         std.mem.indexOf(u8, row_data[0..], &.{ 0x00 }) orelse row_data.len
                                     else
                                         @intCast(usize, len_or_indicator);
-                                    
-                                    var data_slice = try self.allocator.alloc(child_info.Pointer.child, slice_length);
-                                    std.mem.copy(child_info.Pointer.child, data_slice, row_data[0..slice_length]);
-                                    
-                                    @field(item, field.name) = data_slice;
-                                }
-                            } else {
-                                @field(item, field.name) = row_data;
-                            }
-                        } else {
-                            switch (@typeInfo(field.field_type)) {
-                                .Pointer => |info| switch (info.size) {
-                                    .Slice => {
-                                        // If the value is a null-terminated string, get the index of the null byte. If none is found, use the total
-                                        // length of the string. Then, allocate that much space in the result slice and copy the data into it.
-                                        // const item_data = @field(item_row, field.name);
-                                        const slice_length: usize = if (len_or_indicator == odbc.sys.SQL_NTS)
-                                            std.mem.indexOf(u8, row_data[0..], &.{ 0x00 }) orelse row_data.len
-                                        else
-                                            @intCast(usize, len_or_indicator);
 
-                                        var data_slice = try self.allocator.alloc(info.child, slice_length);
-                                        std.mem.copy(info.child, data_slice, row_data[0..slice_length]);
-                                        @field(item, field.name) = data_slice;
-                                    },
-                                    else => @field(item, field.name) = row_data
+                                    var data_slice = try self.allocator.alloc(info.child, slice_length);
+                                    std.mem.copy(info.child, data_slice, row_data[0..slice_length]);
+                                    break :blk data_slice;
                                 },
-                                else => @field(item, field.name) = row_data
-                            }
-                        }
+                                // @warn I've never seen this come up so it might not be strictly necessary, also might be broken
+                                else => row_data
+                            },
+                            // Convert enums back from their backing type to the enum value
+                            .Enum => @intToEnum(field.field_type, row_data),
+                            // All other data types can go right back
+                            else => row_data
+                        };
                     }
                 }
 
@@ -204,6 +196,9 @@ pub fn ResultSet(comptime Base: type) type {
             return null;
         }
 
+        /// Bind each column of the result set to their associated row buffers.
+        /// After this function is called + `statement.fetch()`, you can retrieve
+        /// result data from this struct.
         pub fn bindColumns(self: *Self) !void {
             var column_number: u16 = 1;
             inline for (std.meta.fields(RowType)) |field| {
