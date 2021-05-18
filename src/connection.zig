@@ -41,8 +41,8 @@ pub const Column = struct {
 
 pub const ConnectionInfo = struct {
     pub const Config = struct {
-        driver: ?[]const u8,
-        dsn: ?[]const u8,
+        driver: ?[]const u8 = null,
+        dsn: ?[]const u8 = null,
         username: ?[]const u8 = null,
         password: ?[]const u8 = null,
     };
