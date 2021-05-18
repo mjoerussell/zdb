@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = std.builtin;
 
 const test_files = .{ "src/main.zig", "src/connection.zig", "src/parameter.zig"};
 
@@ -15,7 +16,13 @@ pub fn build(b: *std.build.Builder) void {
 
     exe.addPackagePath("odbc", "zig-odbc/src/lib.zig");
     exe.linkLibC();
-    exe.linkSystemLibrary("odbc32");
+
+    const odbc_library_name = if (builtin.os.tag == .windows) "odbc32" else "odbc";
+    if (builtin.os.tag == .macos) {
+        exe.addIncludeDir("/usr/local/include");
+        exe.addIncludeDir("/usr/local/Cellar/unixodbc/2.3.9");
+    }
+    exe.linkSystemLibrary(odbc_library_name);
 
     const run_cmd = exe.run();
     run_cmd.step.dependOn(b.getInstallStep());
@@ -32,7 +39,7 @@ pub fn build(b: *std.build.Builder) void {
         tests.setBuildMode(mode);
         tests.setTarget(target);
         tests.linkLibC();
-        tests.linkSystemLibrary("odbc32");
+        tests.linkSystemLibrary(odbc_library_name);
 
         test_step.dependOn(&tests.step); 
     }
