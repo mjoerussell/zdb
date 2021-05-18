@@ -84,8 +84,9 @@ pub const PreparedStatement = struct {
             try self.param_data.appendSlice(self.allocator, param);
             self.param_indicators[index - 1] = @intCast(c_longlong, param.len);
         } else {
-            try self.param_data.appendSlice(self.allocator, std.mem.toBytes(@as(EraseComptime(@TypeOf(param)), param))[0..]);
-            self.param_indicators[index - 1] = @sizeOf(EraseComptime(@TypeOf(param)));
+            const ParamType = EraseComptime(@TypeOf(param));
+            try self.param_data.appendSlice(self.allocator, std.mem.toBytes(@as(ParamType, param))[0..]);
+            self.param_indicators[index - 1] = @sizeOf(ParamType);
         }
         
         const param_ptr = &self.param_data.items[param_index];
