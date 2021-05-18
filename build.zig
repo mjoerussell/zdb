@@ -20,8 +20,9 @@ pub fn build(b: *std.build.Builder) void {
     const odbc_library_name = if (builtin.os.tag == .windows) "odbc32" else "odbc";
     if (builtin.os.tag == .macos) {
         exe.addIncludeDir("/usr/local/include");
-        exe.addIncludeDir("/usr/local/Cellar/unixodbc/2.3.9");
+        exe.addIncludeDir("/usr/local/lib");
     }
+    
     exe.linkSystemLibrary(odbc_library_name);
 
     const run_cmd = exe.run();

@@ -167,21 +167,42 @@ pub const DBConnection = struct {
     connection: odbc.Connection,
     allocator: *Allocator,
 
-    pub fn init(allocator: *Allocator, connection_string: []const u8) !DBConnection {
+    pub fn init(allocator: *Allocator, server_name: []const u8, username: []const u8, password: []const u8) !DBConnection {
         var result: DBConnection = undefined;
+        result.allocator = allocator;
+        
         result.environment = odbc.Environment.init(allocator) catch |_| return error.EnvironmentError;
+        errdefer result.environment.deinit() catch |_| {};
+        
         result.environment.setOdbcVersion(.Odbc3) catch |_| return error.EnvironmentError;
         
         result.connection = odbc.Connection.init(allocator, &result.environment) catch |_| return error.ConnectionError;
-        try result.connection.connectExtended(connection_string, .NoPrompt);
+        errdefer result.connection.deinit() catch |_| {};
 
+        try result.connection.connect(server_name, username, password);
+
+        return result;
+    }
+
+    pub fn initWithConnectionString(allocator: *Allocator, connection_string: []const u8) !DBConnection {
+        var result: DBConnection = undefined;
         result.allocator = allocator;
+        
+        result.environment = odbc.Environment.init(allocator) catch |_| return error.EnvironmentError;
+        errdefer result.environment.deinit() catch |_| {};
+        
+        result.environment.setOdbcVersion(.Odbc3) catch |_| return error.EnvironmentError;
+        
+        result.connection = odbc.Connection.init(allocator, &result.environment) catch |_| return error.ConnectionError;
+        errdefer result.connection.deinit() catch |_| {};
+
+        try result.connection.connectExtended(connection_string, .NoPrompt);
 
         return result;
     }
 
     pub fn initWithInfo(allocator: *Allocator, connection_info: *ConnectionInfo) !DBConnection {
-        return try DBConnection.init(allocator, try connection_info.toConnectionString());
+        return try DBConnection.initWithConnectionString(allocator, try connection_info.toConnectionString());
     }
 
     pub fn deinit(self: *DBConnection) void {
