@@ -9,8 +9,13 @@ interaction between the developer and the DB.
 
 To use zdb, follow these steps:
 
-1. Include this repo in your project path. Best way to do this is by running `git submodule add https://github.com/mjoerussell/zdb --recurse-submodules`.
-2. Add this to your project's `build.zig`:
+### 1. Clone
+
+Include this repo in your project path. Best way to do this is by running `git submodule add https://github.com/mjoerussell/zdb --recurse-submodules`.
+
+### 2. (a) Windows
+
+Add this to your project's `build.zig`:
 
 ```zig
 exe.addPackagePath("zdb", "zdb/src/zdb.zig");
@@ -18,7 +23,23 @@ exe.linkLibC();
 exe.linkSystemLibrary("odbc32");
 ```
 
-3. Wherever you use zdb, include `const zdb = @import("zdb");`.
+### 2. (b) MacOS
+
+Install [`unixODBC`](unixodbc.org) if you have not already.
+
+Add this to your project's `build.zig`:
+
+```zig
+exe.addPackagePath("zdb", "zdb/src/zdb.zig");
+exe.linkLibC();
+exe.addIncludeDir("/usr/local/include");
+exe.addIncludeDir("/usr/local/lib");
+exe.linkSystemLibrary("odbc");
+```
+
+### 3. Usage in Code
+
+Wherever you use zdb, include `const zdb = @import("zdb");`.
 
 ## Current Features
 
