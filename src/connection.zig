@@ -41,8 +41,8 @@ pub const Column = struct {
 
 pub const ConnectionInfo = struct {
     pub const Config = struct {
-        driver: []const u8,
-        dsn: []const u8,
+        driver: ?[]const u8,
+        dsn: ?[]const u8,
         username: ?[]const u8 = null,
         password: ?[]const u8 = null,
     };
@@ -62,8 +62,8 @@ pub const ConnectionInfo = struct {
     /// Initialize a `ConnectionInfo` using the information provided in the config data.
     pub fn initWithConfig(allocator: *Allocator, config: Config) !ConnectionInfo {
         var connection_info = ConnectionInfo.init(allocator);
-        try connection_info.setDriver(config.driver);
-        try connection_info.setDSN(config.dsn);
+        if (config.driver) |driver| try connection_info.setDriver(driver);
+        if (config.dsn) |dsn| try connection_info.setDSN(dsn);
         if (config.username) |username| try connection_info.setUsername(username);
         if (config.password) |password| try connection_info.setPassword(password);
 

@@ -87,4 +87,6 @@ pub fn main() !void {
         column.deinit(allocator);
     }
 
+    std.debug.print("{}\n", .{odbc.sys.SQL_CP_DRIVER_AWARE});
+
 }
