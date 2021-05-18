@@ -3,7 +3,9 @@ const Allocator = std.mem.Allocator;
 
 const odbc = @import("odbc");
 
-const DBConnection = @import("connection.zig").DBConnection;
+const db_connection = @import("connection.zig");
+const DBConnection = db_connection.DBConnection;
+const ConnectionInfo = db_connection.ConnectionInfo;
 
 const OdbcTestType = struct {
     id: u32,
@@ -23,7 +25,13 @@ pub fn main() !void {
 
     const allocator = &gpa.allocator;
 
-    var connection = try DBConnection.init(allocator, "ODBC;driver=PostgreSQL Unicode(x64);DSN=PostgreSQL35W");
+    var connection_info = try ConnectionInfo.initWithConfig(allocator, .{
+        .driver = "PostgreSQL Unicode(x64)",
+        .dsn = "PostgreSQL35W"
+    });
+    defer connection_info.deinit();
+
+    var connection = try DBConnection.initWithInfo(allocator, &connection_info);
     defer connection.deinit();
 
     // try connection.insert(OdbcTestType, "odbc_zig_test", &.{
@@ -36,14 +44,18 @@ pub fn main() !void {
     // });
 
     // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test WHERE occupation = ?");
-    // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test WHERE name = ? OR age < ?");
-    var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test");
+    var prepared_statement = try connection.prepareStatement(
+        \\SELECT *  
+        \\FROM odbc_zig_test 
+        \\WHERE name = ? OR age < ?
+    );
+    // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test");
     defer prepared_statement.deinit();
 
-    // try prepared_statement.addParams(.{
-    //     .{1, "Reese"},
-    //     .{2, 30},
-    // });
+    try prepared_statement.addParams(.{
+        .{1, "Reese"},
+        .{2, 30},
+    });
 
     var result_set = try prepared_statement.fetch(OdbcTestType);
     defer result_set.deinit();

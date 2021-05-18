@@ -35,3 +35,23 @@ pub fn default(value: anytype) SqlParameter(EraseComptime(@TypeOf(value))) {
     return result;
 }
 
+test "SqlParameter defaults" {
+    const a = default(10);
+
+    std.testing.expect(a.precision == null);
+    std.testing.expect(a.value == 10);
+    std.testing.expect(@TypeOf(a.value) == i64);
+    std.testing.expect(a.c_type == .SBigInt);
+    std.testing.expect(a.sql_type == .Integer);
+}
+
+test "SqlParameter string" {
+    const param = default("some string");
+
+    std.testing.expect(param.precision == null);
+    std.testing.expect(param.value == "some string");
+    std.testing.expect(@TypeOf(param.value) == [11:0] u8);
+    std.testing.expect(param.c_type == .Char);
+    std.testing.expect(param.sql_type == .Char);
+}
+

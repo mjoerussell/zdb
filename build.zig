@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const test_files = .{ "src/main.zig", "src/connection.zig", "src/parameter.zig"};
+
 pub fn build(b: *std.build.Builder) void {
     // Standard release options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
@@ -24,15 +26,14 @@ pub fn build(b: *std.build.Builder) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    var main_tests = b.addTest("src/main.zig");
-    main_tests.setBuildMode(mode);
-    main_tests.setTarget(target);
-
-    var any_list_test = b.addTest("src/any_list.zig");
-    any_list_test.setBuildMode(mode);
-    any_list_test.setTarget(target);
-
     const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&main_tests.step);
-    test_step.dependOn(&any_list_test.step);
+    inline for (test_files) |filename| {
+        var tests = b.addTest(filename);
+        tests.setBuildMode(mode);
+        tests.setTarget(target);
+        tests.linkLibC();
+        tests.linkSystemLibrary("odbc32");
+
+        test_step.dependOn(&tests.step); 
+    }
 }
