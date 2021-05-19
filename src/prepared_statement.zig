@@ -62,15 +62,21 @@ pub const PreparedStatement = struct {
             error.NoData => {},
             else => {
                 std.debug.print("Fetch failed, getting diagnostic records\n", .{});
-                const errors = try self.statement.getDiagnosticRecords();
-                defer self.allocator.free(errors);
+                const diagnostic_records = try self.statement.getDiagnosticRecords();
+                defer {
+                    for (diagnostic_records) |*r| r.deinit(self.allocator);
+                    self.allocator.free(errors);
+                }
 
-                for (errors) |*e| {
-                    const sql_state = try odbc.Error.OdbcError.fromString(e.sql_state[0..]);
-                    std.debug.print("Fetch Error: {s} ({s})\n", .{e.sql_state, @tagName(sql_state)});
-                    std.debug.print("Error Message: {s}\n", .{e.error_message});
+                for (diagnostic_records) |record| {
+                    const sql_state = odbc.Error.OdbcError.fromString(record.sql_state[0..]);
+                    if (sql_state) |state| {
+                        std.debug.print("Fetch Error: {s} ({s})\n", .{record.sql_state, @tagName(state)});
+                    } else |_| {
+                        std.debug.print("Fetch Error: {s} (unknown sql_state)\n", .{record.sql_state});
+                    }
 
-                    e.deinit(self.allocator);
+                    std.debug.print("Error Message: {s}\n", .{record.error_message});
                 }
 
                 return err;

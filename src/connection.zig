@@ -7,6 +7,7 @@ const PreparedStatement = @import("prepared_statement.zig").PreparedStatement;
 const ResultSet = @import("result_set.zig").ResultSet;
 const FetchResult = @import("result_set.zig").FetchResult;
 
+// @todo Move this to a general "catalog data structs" file
 pub const Column = struct {
     table_category: ?[]const u8,
     table_schema: ?[]const u8,
@@ -263,20 +264,27 @@ pub const DBConnection = struct {
             break :blk count;
         };
 
-        var statement = odbc.Statement.init(&self.connection, self.allocator) catch |stmt_err| {
-            var error_buf: [@sizeOf(odbc.Error.SqlState) * 3]u8 = undefined;
-            var fba = std.heap.FixedBufferAllocator.init(error_buf[0..]);
-
-            const errors = try self.connection.getErrors(&fba.allocator);
-
-            for (errors) |e| {
-                std.debug.print("Statement init error: {s}\n", .{@tagName(e)});
-            }
-            return error.StatementError;
-        };
+        var statement = try self.getStatement();
         errdefer statement.deinit() catch |_| {};
 
-        try statement.prepare(sql_statement);
+        statement.prepare(sql_statement) catch |prep_err| {
+            const diagnostic_records = try statement.getDiagnosticRecords();
+            defer {
+                for (diagnostic_records) |*r| r.deinit(self.allocator);
+                self.allocator.free(diagnostic_records);
+            }
+            for (diagnostic_records) |*record| {
+                const sql_state = odbc.Error.OdbcError.fromString(record.sql_state[0..]);
+                // @todo These are good places to put error logging once logging is implemented
+                if (sql_state) |state| {
+                    std.debug.print("Fetch Error: {s} ({s})\n", .{record.sql_state, @tagName(state)});
+                } else |_| {
+                    std.debug.print("Fetch Error: {s} (unknown sql_state)\n", .{record.sql_state});
+                }
+
+                std.debug.print("Error Message: {s}\n", .{record.error_message});
+            }
+        };
 
         return try PreparedStatement.init(self.allocator, statement, num_params);
     }
