@@ -65,7 +65,7 @@ pub const PreparedStatement = struct {
                 const diagnostic_records = try self.statement.getDiagnosticRecords();
                 defer {
                     for (diagnostic_records) |*r| r.deinit(self.allocator);
-                    self.allocator.free(errors);
+                    self.allocator.free(diagnostic_records);
                 }
 
                 for (diagnostic_records) |record| {
