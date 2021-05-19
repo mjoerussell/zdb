@@ -61,11 +61,16 @@ pub const PreparedStatement = struct {
             error.StillExecuting => {},
             error.NoData => {},
             else => {
-                var error_buf: [@sizeOf(odbc.Error.SqlState) * 3]u8 = undefined;
-                var fba = std.heap.FixedBufferAllocator.init(error_buf[0..]);
-                const errors = self.statement.getErrors(&fba.allocator) catch |_| return err;
-                for (errors) |e| {
-                    std.debug.print("Fetch Error: {s}\n", .{@tagName(e)});
+                std.debug.print("Fetch failed, getting diagnostic records\n", .{});
+                const errors = try self.statement.getDiagnosticRecords();
+                defer self.allocator.free(errors);
+
+                for (errors) |*e| {
+                    const sql_state = try odbc.Error.OdbcError.fromString(e.sql_state[0..]);
+                    std.debug.print("Fetch Error: {s} ({s})\n", .{e.sql_state, @tagName(sql_state)});
+                    std.debug.print("Error Message: {s}\n", .{e.error_message});
+
+                    e.deinit(self.allocator);
                 }
 
                 return err;
