@@ -114,7 +114,7 @@ pub fn ResultSet(comptime Base: type) type {
             var results = try std.ArrayList(Base).initCapacity(self.allocator, self.rows_fetched);
 
             while (try self.next()) |item| {
-                results.appendAssumeCapacity(item);
+                try results.append(item);
             }
 
             return results.toOwnedSlice();
