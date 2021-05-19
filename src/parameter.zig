@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const odbc = @import("odbc");
 
 const EraseComptime = @import("util.zig").EraseComptime;
@@ -34,6 +35,40 @@ pub fn default(value: anytype) SqlParameter(EraseComptime(@TypeOf(value))) {
 
     return result;
 }
+
+pub const ParameterBucket = struct {
+    data: std.ArrayListUnmanaged(u8),
+    indicators: []c_longlong,
+
+    allocator: *Allocator,
+
+    pub fn init(allocator: *Allocator, num_params: usize) !ParameterBucket {
+        return ParameterBucket{
+            .allocator = allocator,
+            .data = try std.ArrayListUnmanaged(u8).initCapacity(allocator, num_params * 8),
+            .indicators = try allocator.alloc(c_longlong, num_params)
+        };
+    }
+
+    pub fn deinit(self: *ParameterBucket) void {
+        self.data.deinit(self.allocator);
+        self.allocator.free(indicators);
+    }
+
+    pub fn addParameter(self: *ParameterBucket, index: usize, param: anytype) !*EraseComptime(@TypeOf(param)) {
+        const ParamType = EraseComptime(@TypeOf(param));
+        const param_index = self.data.items.len;
+        if (comptime std.meta.trait.isZigString(ParamType)) {
+            try self.data.appendSlice(self.allocator, param);
+            self.indicators[index] = @intCast(c_longlong, param.len);
+        } else {
+            try self.data.appendSlice(self.allocator, std.mem.toBytes(@as(ParamType, param))[0..]);
+            self.indicators[index] = @sizeOf(ParamType);
+        }
+        
+        return @ptrCast(*ParamType, &self.data.items[param_index]);
+    }
+};
 
 test "SqlParameter defaults" {
     const a = default(10);

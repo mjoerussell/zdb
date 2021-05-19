@@ -253,17 +253,37 @@ pub const DBConnection = struct {
         }
     }
 
-    /// Create a prepared statement from the specified SQL statement. 
-    pub fn prepareStatement(self: *DBConnection, comptime sql_statement: []const u8) !PreparedStatement {
-        const num_params: usize = comptime blk: {
-            var count: usize = 0;
-            inline for (sql_statement) |c| {
-                if (c == '?') count += 1;
-            }
-            break :blk count;
-        };
+    pub fn executeDirect(self: *DBConnection, comptime ResultType: type, sql_statement: []const u8, params: anytype) !ResultSet(ResultType) {
+        var num_params: usize = 0;
+        for (sql_statement) |c| {
+            if (c == '?') num_params += 1;
+        }
 
-        var statement = odbc.Statement.init(&self.connection, self.allocator) catch |stmt_err| {
+        if (num_params != params.len) return error.InvalidNumParams;
+
+        var statement = self.getStatement() catch |stmt_err| {
+            var error_buf: [@sizeOf(odbc.Error.SqlState) * 3]u8 = undefined;
+            var fba = std.heap.FixedBufferAllocator.init(error_buf[0..]);
+
+            const errors = try self.connection.getErrors(&fba.allocator);
+
+            for (errors) |e| {
+                std.debug.print("Statement init error: {s}\n", .{@tagName(e)});
+            }
+            return error.StatementError;
+        };
+        errdefer statement.deinit() catch |_| {};
+
+    }
+
+    /// Create a prepared statement from the specified SQL statement. 
+    pub fn prepareStatement(self: *DBConnection, sql_statement: []const u8) !PreparedStatement {
+        var num_params: usize = 0;
+        for (sql_statement) |c| {
+            if (c == '?') num_params += 1;
+        }
+
+        var statement = self.getStatement() catch |stmt_err| {
             var error_buf: [@sizeOf(odbc.Error.SqlState) * 3]u8 = undefined;
             var fba = std.heap.FixedBufferAllocator.init(error_buf[0..]);
 
