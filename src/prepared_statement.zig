@@ -47,11 +47,13 @@ pub const PreparedStatement = struct {
     pub fn fetch(self: *PreparedStatement, comptime Result: type) !ResultSet(Result) {
         const RowType = FetchResult(Result);
 
-        var result_set = try ResultSet(Result).init(&self.statement, self.allocator);
+        const batch_size = 10;
+
+        var result_set = try ResultSet(Result).init(&self.statement, self.allocator, batch_size);
         errdefer result_set.deinit();
 
         try self.statement.setAttribute(.{ .RowBindType = @sizeOf(RowType) });
-        try self.statement.setAttribute(.{ .RowArraySize = 10 });
+        try self.statement.setAttribute(.{ .RowArraySize = batch_size });
         try self.statement.setAttribute(.{ .RowStatusPointer = result_set.row_status });
         try self.statement.setAttribute(.{ .RowsFetchedPointer = &result_set.rows_fetched });
 

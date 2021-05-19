@@ -89,12 +89,12 @@ pub fn ResultSet(comptime Base: type) type {
         
         /// Allocate row buffers and row status buffers and then bind the columns to those
         /// buffers.
-        pub fn init(statement: *odbc.Statement, allocator: *Allocator) !Self {
+        pub fn init(statement: *odbc.Statement, allocator: *Allocator, batch_size: usize) !Self {
             var self = Self{
                 .statement = statement,
                 .allocator = allocator,
-                .rows = try allocator.alloc(RowType, 10),
-                .row_status = try allocator.alloc(RowStatus, 10)
+                .rows = try allocator.alloc(RowType, batch_size),
+                .row_status = try allocator.alloc(RowStatus, batch_size)
             };
 
             try self.bindColumns();
