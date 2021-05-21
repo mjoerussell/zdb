@@ -60,7 +60,7 @@ pub const PreparedStatement = struct {
             .column => try self.statement.numResultColumns()
         };
 
-        var result_set = try ResultSet(Result, comptime getBindType(Result)).init(self.allocator, &self.statement, size);
+        var result_set = try ResultSet(Result, bind_type).init(self.allocator, &self.statement, size);
         errdefer result_set.deinit();
 
         if (bind_type == .row) {

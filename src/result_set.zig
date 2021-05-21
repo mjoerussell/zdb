@@ -184,7 +184,6 @@ pub const BindType = enum(u1) {
     column
 };
 
-
 fn RowBindingResultSet(comptime Base: type) type {
     return struct {
         const Self = @This();
@@ -357,6 +356,8 @@ pub fn ColumnBindingResultSet(comptime Base: type) type {
         statement: *odbc.Statement,
         allocator: *Allocator,
 
+        is_first: bool = true,
+
         pub fn init(allocator: *Allocator, statement: *odbc.Statement, num_columns: usize) !Self {
             return Self{
                 .statement = statement,
@@ -380,6 +381,15 @@ pub fn ColumnBindingResultSet(comptime Base: type) type {
         }
 
         pub fn next(self: *Self) !?Base {
+            if (!is_first) {
+                self.statement.fetch() catch |err| switch (err) {
+                    error.NoData => return null,
+                    else => return err
+                };
+            } else {
+                is_first = false;
+            }
+
             return try Base.fromRow(&self.row);    
         }
     };

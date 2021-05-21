@@ -7,15 +7,34 @@ const db_connection = @import("connection.zig");
 const DBConnection = db_connection.DBConnection;
 const ConnectionInfo = db_connection.ConnectionInfo;
 
-const OdbcTestType = struct {
-    id: u32,
-    name: []const u8,
-    occupation: []const u8,
-    age: u32,
+const Row = @import("result_set.zig").Row;
 
-    fn deinit(self: *OdbcTestType, allocator: *Allocator) void {
-        allocator.free(self.name);
-        allocator.free(self.occupation);
+// const OdbcTestType = struct {
+//     id: u32,
+//     name: []const u8,
+//     occupation: []const u8,
+//     age: u32,
+
+//     fn deinit(self: *OdbcTestType, allocator: *Allocator) void {
+//         allocator.free(self.name);
+//         allocator.free(self.occupation);
+//     }
+// };
+
+const OdbcTestType = struct {
+    name: []const u8,
+    age: u32,
+    job_info: struct {
+        job_name: []const u8
+    },
+
+    pub fn fromRow(row: *Row(OdbcTestType)) !OdbcTestType {
+        var result: OdbcTestType = undefined;
+        result.name = try row.get([]const u8, "name");
+        result.age = try row.get(u32, "age");
+        result.job_info.job_name = try row.get([]const u8, "occupation");
+
+        return result;
     }
 };
 
@@ -47,20 +66,20 @@ pub fn main() !void {
     var prepared_statement = try connection.prepareStatement(
         \\SELECT *  
         \\FROM odbc_zig_test 
-        \\WHERE name = ? OR age < ?
+        // \\WHERE name = ? OR age < ?
     );
     // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test");
     defer prepared_statement.deinit();
 
-    try prepared_statement.addParams(.{
-        .{1, "Reese"},
-        .{2, 30},
-    });
+    // try prepared_statement.addParams(.{
+    //     .{1, "Reese"},
+    //     .{2, 30},
+    // });
 
     var result_set = try prepared_statement.fetch(OdbcTestType);
     defer result_set.deinit();
 
-    std.debug.print("Rows fetched: {}\n", .{result_set.rows_fetched});
+    // std.debug.print("Rows fetched: {}\n", .{result_set.rows_fetched});
 
     const query_results: []OdbcTestType = try result_set.getAllRows();
     defer {
@@ -69,9 +88,10 @@ pub fn main() !void {
     }
 
     for (query_results) |result| {
-        std.debug.print("Id: {}\n", .{result.id});
+        // std.debug.print("Id: {}\n", .{result.id});
         std.debug.print("Name: {s}\n", .{result.name});
-        std.debug.print("Occupation: {s}\n", .{result.occupation});
+        // std.debug.print("Occupation: {s}\n", .{result.occupation});
+        std.debug.print("Occupation: {s}\n", .{result.job_info.job_name});
         std.debug.print("Age: {}\n\n", .{result.age});
     }
 
