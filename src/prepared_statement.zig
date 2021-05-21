@@ -5,14 +5,9 @@ const odbc = @import("odbc");
 
 const ResultSet = @import("result_set.zig").ResultSet;
 const FetchResult = @import("result_set.zig").FetchResult;
-const BindType = @import("result_set.zig").BindType;
 
 const EraseComptime = @import("util.zig").EraseComptime;
 const sql_parameter = @import("parameter.zig");
-
-fn getBindType(comptime T: type) BindType {
-    return if (@hasDecl(T, "fromRow")) .column else .row;
-}
 
 /// A prepared statement is created by submitting a SQL statement prior to execution. This allows the statement
 /// to be executed multiple times without having to re-prepare the query.
@@ -49,18 +44,12 @@ pub const PreparedStatement = struct {
 
     /// Execute the current statement, binding the result columns to the fields of the type `Result`.
     /// Returns a ResultSet from which each row can be retrieved.
-    pub fn fetch(self: *PreparedStatement, comptime Result: type) !ResultSet(Result, getBindType(Result)) {
+    pub fn fetch(self: *PreparedStatement, comptime Result: type) !ResultSet(Result) {
         const RowType = FetchResult(Result);
 
         try self.execute();
 
-        const bind_type = comptime getBindType(Result);
-        const size = switch (bind_type) {
-            .row => 10,
-            .column => try self.statement.numResultColumns()
-        };
-
-        var result_set = try ResultSet(Result, bind_type).init(self.allocator, &self.statement, size);
+        var result_set = try ResultSet(Result).init(self.allocator, &self.statement);
         errdefer result_set.deinit();
 
         return result_set;

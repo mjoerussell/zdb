@@ -98,12 +98,12 @@ fn RowBindingResultSet(comptime Base: type) type {
 
         /// Initialze the ResultSet with the given batch_size. batch_size will control how many results
         /// are fetched every time `statement.fetch()` is called.
-        pub fn init(allocator: *Allocator, statement: *odbc.Statement, batch_size: usize) !Self {
-            var rows = try allocator.alloc(RowType, batch_size);
-            var row_status = try allocator.alloc(RowStatus, batch_size);
+        pub fn init(allocator: *Allocator, statement: *odbc.Statement) !Self {
+            var rows = try allocator.alloc(RowType, 20);
+            var row_status = try allocator.alloc(RowStatus, 20);
 
             try statement.setAttribute(.{ .RowBindType = @sizeOf(RowType) });
-            try statement.setAttribute(.{ .RowArraySize = batch_size });
+            try statement.setAttribute(.{ .RowArraySize = 20 });
             try statement.setAttribute(.{ .RowStatusPointer = row_status });
 
             var self = Self{
@@ -402,7 +402,9 @@ fn ColumnBindingResultSet(comptime Base: type) type {
         statement: *odbc.Statement,
         allocator: *Allocator,
 
-        pub fn init(allocator: *Allocator, statement: *odbc.Statement, num_columns: usize) !Self {
+        pub fn init(allocator: *Allocator, statement: *odbc.Statement) !Self {
+            const num_columns = try statement.numResultColumns();
+
             return Self{
                 .statement = statement,
                 .allocator = allocator,
@@ -445,7 +447,8 @@ pub const BindType = enum(u1) {
     column
 };
 
-pub fn ResultSet(comptime Base: type, comptime bind_type: BindType) type {
+pub fn ResultSet(comptime Base: type) type {
+    comptime const bind_type: BindType = if (@hasDecl(Base, "fromRow")) .column else .row; 
     return switch (bind_type) {
         .row => RowBindingResultSet(Base),
         .column => ColumnBindingResultSet(Base),

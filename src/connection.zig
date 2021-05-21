@@ -294,30 +294,10 @@ pub const DBConnection = struct {
         var statement = try self.getStatement();
         defer statement.deinit() catch |_| {};
 
-        var result_set = try ResultSet(Column, .row).init(self.allocator, &statement, 10);
+        var result_set = try ResultSet(Column).init(self.allocator, &statement);
         defer result_set.deinit();
 
-        // try statement.setAttribute(.{ .RowBindType = @sizeOf(FetchResult(Column)) });
-        // try statement.setAttribute(.{ .RowArraySize = 10 });
-        // try statement.setAttribute(.{ .RowStatusPointer = result_set.row_status });
-        // try statement.setAttribute(.{ .RowsFetchedPointer = &result_set.rows_fetched });
-
         try statement.columns(catalog_name, schema_name, table_name, null);
-
-        // statement.fetch() catch |err| switch (err) {
-        //     error.StillExecuting => {},
-        //     error.NoData => {},
-        //     else => {
-        //         var error_buf: [@sizeOf(odbc.Error.SqlState) * 3]u8 = undefined;
-        //         var fba = std.heap.FixedBufferAllocator.init(error_buf[0..]);
-        //         const errors = statement.getErrors(&fba.allocator) catch |_| return err;
-        //         for (errors) |e| {
-        //             std.debug.print("Fetch Error: {s}\n", .{@tagName(e)});
-        //         }
-
-        //         return err;
-        //     }
-        // };
 
         return try result_set.getAllRows();
     }
