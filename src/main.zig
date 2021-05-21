@@ -36,6 +36,11 @@ const OdbcTestType = struct {
 
         return result;
     }
+
+    fn deinit(self: *OdbcTestType, allocator: *Allocator) void {
+        allocator.free(self.name);
+        allocator.free(self.job_info.job_name);
+    }
 };
 
 pub fn main() !void {
@@ -95,18 +100,16 @@ pub fn main() !void {
         std.debug.print("Age: {}\n\n", .{result.age});
     }
 
-    const table_columns = try connection.getColumns("zig-test", "public", "odbc_zig_test");
-    defer allocator.free(table_columns);
+    // const table_columns = try connection.getColumns("zig-test", "public", "odbc_zig_test");
+    // defer allocator.free(table_columns);
 
-    std.debug.print("Found {} columns\n", .{table_columns.len});
-    for (table_columns) |*column| {
-        std.debug.print("Column Name: {s}\n", .{column.column_name});
-        std.debug.print("Column Type: {s}\n", .{@tagName(column.sql_data_type)});
-        std.debug.print("Column Nullable? {s}\n", .{@tagName(column.nullable)});
-        std.debug.print("Decimal Digits: {}\n\n", .{column.decimal_digits});
-        column.deinit(allocator);
-    }
-
-    std.debug.print("{}\n", .{odbc.sys.SQL_CP_DRIVER_AWARE});
+    // std.debug.print("Found {} columns\n", .{table_columns.len});
+    // for (table_columns) |*column| {
+    //     std.debug.print("Column Name: {s}\n", .{column.column_name});
+    //     std.debug.print("Column Type: {s}\n", .{@tagName(column.sql_data_type)});
+    //     std.debug.print("Column Nullable? {s}\n", .{@tagName(column.nullable)});
+    //     std.debug.print("Decimal Digits: {}\n\n", .{column.decimal_digits});
+    //     column.deinit(allocator);
+    // }
 
 }
