@@ -294,7 +294,7 @@ pub const DBConnection = struct {
         var statement = try self.getStatement();
         defer statement.deinit() catch |_| {};
 
-        var result_set = try ResultSet(Column).init(&statement, self.allocator);
+        var result_set = try ResultSet(Column, .row).init(self.allocator, &statement, 10);
         defer result_set.deinit();
 
         try statement.setAttribute(.{ .RowBindType = @sizeOf(FetchResult(Column)) });
