@@ -3,6 +3,8 @@ const Allocator = std.mem.Allocator;
 
 const odbc = @import("odbc");
 
+const sliceToValue = @import("util.zig").sliceToValue;
+
 /// Given a struct, generate a new struct that can be used for ODBC row-wise binding. The conversion goes
 /// roughly like this;
 /// ```
@@ -71,30 +73,44 @@ pub fn FetchResult(comptime Target: type) type {
     }
 }
 
-pub fn ResultSet(comptime Base: type) type {
+/// RowBindingResultSet handles fetching and binding data from query executions
+/// when the bind_type has been set to .row. In order to bind data this way,
+/// `Base` must have fields that correspond with the columns in the result set.
+/// The columns will be mapped to the fields in-order, regardless of what the fields
+/// are named.
+fn RowBindingResultSet(comptime Base: type) type {
     return struct {
         const Self = @This();
-        const RowStatus = odbc.Types.StatementAttributeValue.RowStatus;
 
         pub const RowType = FetchResult(Base);
+        const RowStatus = odbc.Types.StatementAttributeValue.RowStatus;
 
-        rows_fetched: usize = 0,
         rows: []RowType,
         row_status: []RowStatus,
 
+        rows_fetched: usize = 0,
         current_row: usize = 0,
 
-        statement: *odbc.Statement,
+        is_first: bool = true,
+
         allocator: *Allocator,
-        
-        /// Allocate row buffers and row status buffers and then bind the columns to those
-        /// buffers.
-        pub fn init(statement: *odbc.Statement, allocator: *Allocator, batch_size: usize) !Self {
+        statement: *odbc.Statement,
+
+        /// Initialze the ResultSet with the given batch_size. batch_size will control how many results
+        /// are fetched every time `statement.fetch()` is called.
+        pub fn init(allocator: *Allocator, statement: *odbc.Statement) !Self {
+            var rows = try allocator.alloc(RowType, 20);
+            var row_status = try allocator.alloc(RowStatus, 20);
+
+            try statement.setAttribute(.{ .RowBindType = @sizeOf(RowType) });
+            try statement.setAttribute(.{ .RowArraySize = 20 });
+            try statement.setAttribute(.{ .RowStatusPointer = row_status });
+
             var self = Self{
                 .statement = statement,
                 .allocator = allocator,
-                .rows = try allocator.alloc(RowType, batch_size),
-                .row_status = try allocator.alloc(RowStatus, batch_size)
+                .rows = rows,
+                .row_status = row_status
             };
 
             try self.bindColumns();
@@ -103,15 +119,14 @@ pub fn ResultSet(comptime Base: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-            // @todo Should we unbind the columns here? Or is deallocating the bound buffers enough?
             self.allocator.free(self.rows);
             self.allocator.free(self.row_status);
         }
 
-
-        /// Fetch all of the available rows from the result set.
+        /// Keep fetching until all results have been retrieved.
         pub fn getAllRows(self: *Self) ![]Base {
             var results = try std.ArrayList(Base).initCapacity(self.allocator, self.rows_fetched);
+            errdefer results.deinit();
 
             while (try self.next()) |item| {
                 try results.append(item);
@@ -120,13 +135,49 @@ pub fn ResultSet(comptime Base: type) type {
             return results.toOwnedSlice();
         }
 
+        /// Get the next available row. If all current rows have been read, this will attempt to
+        /// fetch more results with `statement.fetch()`. If `statement.fetch()` returns `error.NoData`,
+        /// this will return `null`.
         pub fn next(self: *Self) !?Base {
+            if (self.is_first) {
+                try self.statement.setAttribute(.{ .RowsFetchedPointer = &self.rows_fetched });
+                self.statement.fetch() catch |err| switch (err) {
+                    error.StillExecuting => {},
+                    error.NoData => {},
+                    else => {
+                        std.debug.print("Fetch failed, getting diagnostic records\n", .{});
+                        const diagnostic_records = try self.statement.getDiagnosticRecords();
+                        defer {
+                            for (diagnostic_records) |*r| r.deinit(self.allocator);
+                            self.allocator.free(diagnostic_records);
+                        }
+
+                        for (diagnostic_records) |record| {
+                            const sql_state = odbc.Error.OdbcError.fromString(record.sql_state[0..]);
+                            if (sql_state) |state| {
+                                std.debug.print("Fetch Error: {s} ({s})\n", .{record.sql_state, @tagName(state)});
+                            } else |_| {
+                                std.debug.print("Fetch Error: {s} (unknown sql_state)\n", .{record.sql_state});
+                            }
+
+                            std.debug.print("Error Message: {s}\n", .{record.error_message});
+                        }
+
+                        return err;
+                    }
+                };  
+
+                self.is_first = false;
+            }
             // @todo Does this ever happen? I'm not sure if rows_fetched will be just the maximum number of rows that it can make available
             // in buffers at the moment, or if it's the total number of rows that the query resulted in
             if (self.current_row >= self.rows_fetched) {
                 // Because of the param binding in PreparedStatement.fetch, this will update self.rows_fetched
                 // @todo async - Handle error.StillExecuting here
-                self.statement.fetch() catch |_| return null;
+                self.statement.fetch() catch |err| switch (err) {
+                    error.NoData => return null,
+                    else => return err
+                };
                 self.current_row = 0;
             }
 
@@ -238,6 +289,168 @@ pub fn ResultSet(comptime Base: type) type {
                 column_number += 1;
             }
         }
+    };
+}
 
+/// `Row` represents a single record when `bind_type` is set to `.column`.
+pub const Row = struct {
+    const Self = @This();
+
+    const Column = struct {
+        name: []const u8,
+        sql_type: odbc.Types.SqlType,
+        data: []u8,
+        indicator: c_longlong,
+    };
+
+    columns: []Column,
+
+    statement: *odbc.Statement,
+    allocator: *Allocator,
+
+
+    fn init(allocator: *Allocator, statement: *odbc.Statement, num_columns: usize) !Self {
+        var row: Self = undefined;
+            
+        row.statement = statement;
+        row.allocator = allocator;
+
+        row.columns = try allocator.alloc(Column, num_columns);
+
+        for (row.columns) |*column, column_index| {
+            column.sql_type = (try row.statement.getColumnAttribute(column_index + 1, .Type)).Type;
+            column.name = (try row.statement.getColumnAttribute(column_index + 1, .BaseColumnName)).BaseColumnName;
+
+            const column_size = (try row.statement.getColumnAttribute(column_index + 1, .OctetLength)).OctetLength;
+
+            column.data = try allocator.alloc(u8, @intCast(usize, column_size));
+
+            try row.statement.bindColumn(
+                @intCast(u16, column_index + 1),
+                column.sql_type.defaultCType(),
+                column.data,
+                &column.indicator
+            );
+        }
+
+        return row;
+    }
+
+    fn deinit(self: *Self) void {
+        for (self.columns) |*column| {
+            self.allocator.free(column.name);
+            self.allocator.free(column.data);
+        }
+        self.allocator.free(self.columns);
+    }
+
+    /// Get a value from a column using the column name. Will attempt to convert whatever bytes
+    /// are stored for the column into `ColumnType`.
+    pub fn get(self: *Self, comptime ColumnType: type, column_name: []const u8) !ColumnType {
+        const column_index = for (self.columns) |column, index| {
+            if (std.mem.eql(u8, column.name, column_name)) break index;
+        } else return error.ColumnNotFound;
+
+        return try self.getWithIndex(ColumnType, column_index + 1);
+    }
+
+    /// Get a value from a column using the column index. Column indices start from 1. Will attempt to
+    /// convert whatever bytes are stored for the column into `ColumnType`.
+    pub fn getWithIndex(self: *Self, comptime ColumnType: type, column_index: usize) !ColumnType {
+        const target_column = self.columns[column_index - 1];
+
+        if (target_column.indicator == odbc.sys.SQL_NULL_DATA) {
+            return switch (@typeInfo(ColumnType)) {
+                .Optional => null,
+                else => error.InvalidNullValue,
+            };
+        }
+
+        return switch (@typeInfo(ColumnType)) {
+            .Pointer => |info| switch (info.size) {
+                .Slice => blk: {
+                    const slice_length = if (target_column.indicator == odbc.sys.SQL_NTS)
+                        std.mem.indexOf(u8, target_column.data, &.{ 0x00 }) orelse target_column.data.len
+                    else
+                        @intCast(usize, target_column.indicator);
+
+                    if (slice_length > target_column.data.len) {
+                        break :blk error.InvalidString;
+                    }
+
+                    var return_buffer = try self.allocator.alloc(u8, slice_length);
+                    std.mem.copy(u8, return_buffer, target_column.data[0..slice_length]);
+
+                    break :blk return_buffer;
+                },
+                else => sliceToValue(ColumnType, target_column.data[0..@intCast(usize, target_column.indicator)]),
+            },
+            else => sliceToValue(ColumnType, target_column.data[0..@intCast(usize, target_column.indicator)])
+        };
+    }
+};
+
+/// ColumnBindingResultSet is used when `bind_type` is set to `.column`. This will happen when a given struct
+/// has a function called `fromRow` declared on it. This result set will use that function to convert data
+/// from generic `Row` types to `Base`.
+fn ColumnBindingResultSet(comptime Base: type) type {
+    return struct {
+        const Self = @This();
+
+        row: Row,
+
+        statement: *odbc.Statement,
+        allocator: *Allocator,
+
+        pub fn init(allocator: *Allocator, statement: *odbc.Statement) !Self {
+            const num_columns = try statement.numResultColumns();
+
+            return Self{
+                .statement = statement,
+                .allocator = allocator,
+                .row = try Row.init(allocator, statement, num_columns)
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.row.deinit();
+        }
+        
+        /// Keep fetching until all of the rows have been retrieved.
+        pub fn getAllRows(self: *Self) ![]Base {
+            var results = try std.ArrayList(Base).initCapacity(self.allocator, 50);
+            errdefer results.deinit();
+
+            while (try self.next()) |item| {
+                try results.append(item);
+            }
+
+            return results.toOwnedSlice();
+        }
+        
+        /// Get the next available result. This calls `statement.fetch()` every time, because column-wise
+        /// binding only allows for binding 1 row at a time. When `statement.fetch()` returns `error.NoData`,
+        /// this will return `null`.
+        pub fn next(self: *Self) !?Base {
+            self.statement.fetch() catch |err| switch (err) {
+                error.NoData => return null,
+                else => return err
+            };
+
+            return try Base.fromRow(&self.row, self.allocator);    
+        }
+    };
+}
+
+pub const BindType = enum(u1) {
+    row,
+    column
+};
+
+pub fn ResultSet(comptime Base: type) type {
+    comptime const bind_type: BindType = if (@hasDecl(Base, "fromRow")) .column else .row; 
+    return switch (bind_type) {
+        .row => RowBindingResultSet(Base),
+        .column => ColumnBindingResultSet(Base),
     };
 }
