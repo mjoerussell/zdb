@@ -419,7 +419,7 @@ pub fn ColumnBindingResultSet(comptime Base: type) type {
                 self.is_first = false;
             }
 
-            return try Base.fromRow(&self.row);    
+            return try Base.fromRow(&self.row, self.allocator);    
         }
     };
 }

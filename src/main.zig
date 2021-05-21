@@ -28,7 +28,7 @@ const OdbcTestType = struct {
         job_name: []const u8
     },
 
-    pub fn fromRow(row: *Row(OdbcTestType)) !OdbcTestType {
+    pub fn fromRow(row: *Row(OdbcTestType), allocator: *Allocator) !OdbcTestType {
         var result: OdbcTestType = undefined;
         result.name = try row.get([]const u8, "name");
         result.age = try row.get(u32, "age");
