@@ -23,7 +23,7 @@ const Row = @import("result_set.zig").Row;
 
 const OdbcTestType = struct {
     name: []const u8,
-    age: u32,
+    age: []const u8,
     job_info: struct {
         job_name: []const u8
     },
@@ -31,7 +31,10 @@ const OdbcTestType = struct {
     pub fn fromRow(row: *Row, allocator: *Allocator) !OdbcTestType {
         var result: OdbcTestType = undefined;
         result.name = try row.get([]const u8, "name");
-        result.age = try row.get(u32, "age");
+        
+        const age = try row.get(u32, "age");
+        result.age = try std.fmt.allocPrint(allocator, "{} years old", .{age});
+
         result.job_info.job_name = try row.get([]const u8, "occupation");
 
         return result;
@@ -39,6 +42,7 @@ const OdbcTestType = struct {
 
     fn deinit(self: *OdbcTestType, allocator: *Allocator) void {
         allocator.free(self.name);
+        allocator.free(self.age);
         allocator.free(self.job_info.job_name);
     }
 };
@@ -97,7 +101,7 @@ pub fn main() !void {
         std.debug.print("Name: {s}\n", .{result.name});
         // std.debug.print("Occupation: {s}\n", .{result.occupation});
         std.debug.print("Occupation: {s}\n", .{result.job_info.job_name});
-        std.debug.print("Age: {}\n\n", .{result.age});
+        std.debug.print("Age: {s}\n\n", .{result.age});
     }
 
     const table_columns = try connection.getColumns("zig-test", "public", "odbc_zig_test");
