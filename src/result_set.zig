@@ -73,211 +73,92 @@ pub fn FetchResult(comptime Target: type) type {
     }
 }
 
-pub fn Row(comptime Result: type) type {
-    return struct {
-        const Self = @This();
+pub const Row = struct {
+    const Self = @This();
 
-        const Column = struct {
-            name: []const u8,
-            sql_type: odbc.Types.SqlType,
-            data: []u8,
-            indicator: c_longlong,
+    const Column = struct {
+        name: []const u8,
+        sql_type: odbc.Types.SqlType,
+        data: []u8,
+        indicator: c_longlong,
+    };
+
+    columns: []Column,
+
+    statement: *odbc.Statement,
+    allocator: *Allocator,
+
+    pub fn init(allocator: *Allocator, statement: *odbc.Statement, num_columns: usize) !Self {
+        var row: Self = undefined;
+            
+        row.statement = statement;
+        row.allocator = allocator;
+
+        row.columns = try allocator.alloc(Column, num_columns);
+
+        for (row.columns) |*column, column_index| {
+            column.sql_type = (try row.statement.getColumnAttribute(column_index + 1, .Type)).Type;
+            column.name = (try row.statement.getColumnAttribute(column_index + 1, .BaseColumnName)).BaseColumnName;
+
+            const column_size = (try row.statement.getColumnAttribute(column_index + 1, .OctetLength)).OctetLength;
+
+            column.data = try allocator.alloc(u8, @intCast(usize, column_size));
+
+            try row.statement.bindColumn(
+                @intCast(u16, column_index + 1),
+                column.sql_type.defaultCType(),
+                column.data,
+                &column.indicator
+            );
+        }
+
+        return row;
+    }
+
+    pub fn deinit(self: *Self) void {
+        for (self.columns) |*column| {
+            self.allocator.free(column.name);
+            self.allocator.free(column.data);
+        }
+        self.allocator.free(self.columns);
+    }
+
+    pub fn get(self: *Self, comptime ColumnType: type, column_name: []const u8) !ColumnType {
+        const target_column: Column = for (self.columns) |column| {
+            if (std.mem.eql(u8, column.name, column_name)) break column;
+        } else return error.ColumnNotFound;
+
+        if (target_column.indicator == odbc.sys.SQL_NULL_DATA) {
+            return switch (@typeInfo(ColumnType)) {
+                .Optional => null,
+                else => error.InvalidNullValue,
+            };
+        }
+
+        return switch (@typeInfo(ColumnType)) {
+            .Pointer => |info| switch (info.size) {
+                .Slice => blk: {
+                    const slice_length = if (target_column.indicator == odbc.sys.SQL_NTS)
+                        std.mem.indexOf(u8, target_column.data, &.{ 0x00 }) orelse target_column.data.len
+                    else
+                        @intCast(usize, target_column.indicator);
+
+                    if (slice_length > target_column.data.len) {
+                        break :blk error.InvalidString;
+                    }
+
+                    var return_buffer = try self.allocator.alloc(u8, slice_length);
+                    std.mem.copy(u8, return_buffer, target_column.data[0..slice_length]);
+
+                    break :blk return_buffer;
+                },
+                else => sliceToValue(ColumnType, target_column.data[0..@intCast(usize, target_column.indicator)]),
+            },
+            else => sliceToValue(ColumnType, target_column.data[0..@intCast(usize, target_column.indicator)])
         };
 
-        columns: []Column,
-
-        // column_names: [][]const u8,
-        // column_types: []odbc.Types.SqlType,
-        
-        // column_offsets: []usize,
-        // column_lengths: []usize,
-
-        // data: []u8,
-
-        statement: *odbc.Statement,
-        allocator: *Allocator,
-
-        pub fn init(allocator: *Allocator, statement: *odbc.Statement, num_columns: usize) !Self {
-            var row: Self = undefined;
-                
-            row.statement = statement;
-            row.allocator = allocator;
-
-            row.columns = try allocator.alloc(Column, num_columns);
-
-            // row.column_names = try allocator.alloc([]const u8, num_columns);
-            // row.column_types = try allocator.alloc(odbc.Types.SqlType, num_columns);
-
-            // row.column_offsets = try allocator.alloc(usize, num_columns);
-            // row.column_offsets[0] = 0;
-
-            // row.column_lengths = try allocator.alloc(usize, num_columns);
-
-            const alignBuf = struct {
-                const align_size = 4;
-                fn alignBuf(value: anytype) usize {
-                    const algn = if (@mod(value, align_size) == 0) value else value + align_size - (@mod(value, align_size));
-                    return @intCast(usize, algn);
-                }
-            }.alignBuf;
-
-            for (row.columns) |*column, column_index| {
-                column.sql_type = (try row.statement.getColumnAttribute(column_index + 1, .Type)).Type;
-                column.name = (try row.statement.getColumnAttribute(column_index + 1, .BaseColumnName)).BaseColumnName;
-
-                const column_size = (try row.statement.getColumnAttribute(column_index + 1, .OctetLength)).OctetLength;
-
-                column.data = try allocator.alloc(u8, @intCast(usize, column_size));
-
-                try row.statement.bindColumn(
-                    @intCast(u16, column_index + 1),
-                    column.sql_type.defaultCType(),
-                    column.data,
-                    &column.indicator
-                    // row.data[data_start_index..data_len_start_index],
-                    // @ptrCast(*c_longlong, @alignCast(@alignOf(c_longlong), &row.data[data_len_start_index]))
-                    // @ptrCast(*align(1) c_longlong, &row.data[data_len_start_index])
-                );
-            }
-
-            // Used to align column offsets
-            // const buffer_align = alignBuf(@sizeOf(odbc.sys.SQLINTEGER));
-            // var column_index: usize = 0;
-            // while (column_index < num_columns) : (column_index += 1) {
-            //     row.column_names[column_index] = (try row.statement.getColumnAttribute(column_index + 1, .BaseColumnName)).BaseColumnName;
-
-            //     const column_type = try row.statement.getColumnAttribute(column_index + 1, .Type);
-            //     row.column_types[column_index] = column_type.Type;
-
-            //     const column_size = (try row.statement.getColumnAttribute(column_index + 1, .OctetLength)).OctetLength;
-            //     // 4 is the alignment, might be different on different platforms so consider parameterizing this somehow
-            //     row.column_lengths[column_index] = @intCast(usize, column_size) + @intCast(usize, @mod(column_size, 4));
-            //     row.column_lengths[column_index] = alignBuf(row.column_lengths[column_index]);
-
-            //     if (column_index != 0) {
-            //         // The offset of the current column (after the first) is the 
-            //         row.column_offsets[column_index] = row.column_offsets[column_index - 1] + row.column_lengths[column_index - 1] + buffer_align;
-            //     }
-            // }
-
-            // row.data = try allocator.alloc(u8, row.column_offsets[num_columns - 1] + row.column_lengths[num_columns - 1] + buffer_align);
-
-            // column_index = 0;
-            // while (column_index < num_columns) : (column_index += 1) {
-            //     // @setRuntimeSafety(false);
-            //     const data_start_index = row.column_offsets[column_index];
-            //     const data_len_start_index = data_start_index + row.column_lengths[column_index];
-            //     try row.statement.bindColumn(
-            //         @intCast(u16, column_index + 1),
-            //         row.column_types[column_index].defaultCType(),
-            //         row.data[data_start_index..data_len_start_index],
-            //         @ptrCast(*c_longlong, @alignCast(@alignOf(c_longlong), &row.data[data_len_start_index]))
-            //         // @ptrCast(*align(1) c_longlong, &row.data[data_len_start_index])
-            //     );
-            // }
-
-            return row;
-        }
-
-        pub fn deinit(self: *Self) void {
-            for (self.columns) |*column| {
-                self.allocator.free(column.name);
-                self.allocator.free(column.data);
-            }
-            self.allocator.free(self.columns);
-        }
-        // pub fn deinit(self: *Self) void {
-        //     self.allocator.free(self.data);
-        //     self.allocator.free(self.column_offsets);
-        //     self.allocator.free(self.column_lengths);
-        //     self.allocator.free(self.column_types);
-
-        //     for (self.column_names) |name| self.allocator.free(name);
-        //     self.allocator.free(self.column_names);
-        // }
-
-        pub fn get(self: *Self, comptime ColumnType: type, column_name: []const u8) !ColumnType {
-            const target_column: Column = for (self.columns) |column| {
-                if (std.mem.eql(u8, column.name, column_name)) break column;
-            } else return error.ColumnNotFound;
-
-            if (target_column.indicator == odbc.sys.SQL_NULL_DATA) {
-                return switch (@typeInfo(ColumnType)) {
-                    .Optional => null,
-                    else => error.InvalidNullValue,
-                };
-            }
-
-            return switch (@typeInfo(ColumnType)) {
-                .Pointer => |info| switch (info.size) {
-                    .Slice => blk: {
-                        const slice_length = if (target_column.indicator == odbc.sys.SQL_NTS)
-                            std.mem.indexOf(u8, target_column.data, &.{ 0x00 }) orelse target_column.data.len
-                        else
-                            @intCast(usize, target_column.indicator);
-
-                        if (slice_length > target_column.data.len) {
-                            break :blk error.InvalidString;
-                        }
-
-                        var return_buffer = try self.allocator.alloc(u8, slice_length);
-                        std.mem.copy(u8, return_buffer, target_column.data[0..slice_length]);
-
-                        break :blk return_buffer;
-                    },
-                    else => sliceToValue(ColumnType, target_column.data[0..@intCast(usize, target_column.indicator)]),
-                },
-                else => sliceToValue(ColumnType, target_column.data[0..@intCast(usize, target_column.indicator)])
-            };
-
-        }
-
-        // pub fn get(self: *Self, comptime ColumnType: type, column_name: []const u8) !ColumnType {
-        //     // Get the column index by name
-        //     var column_index = for (self.column_names) |name, index| {
-        //         if (std.mem.eql(u8, name, column_name)) break index;
-        //     } else return error.ColumnNotFound;
-
-        //     const value_start_index = self.column_offsets[column_index];
-        //     const value_len_or_ind = blk: {
-        //         const len_or_ind_location = value_start_index + self.column_lengths[column_index];
-        //         const len_or_ind = sliceToValue(c_long, self.data[len_or_ind_location..]);
-        //         // const len_or_ind_ptr = @ptrCast(*c_longlong, @alignCast(@alignOf(c_longlong), &self.data[len_or_ind_location]));
-        //         // break :blk len_or_ind_ptr.*;
-        //         break :blk len_or_ind;
-        //     };
-
-        //     if (value_len_or_ind == odbc.sys.SQL_NULL_DATA) {
-        //         return switch (@typeInfo(ColumnType)) {
-        //             .Optional => null,
-        //             else => error.InvalidNullValue
-        //         };
-        //     }
-
-        //     return switch (@typeInfo(ColumnType)) {
-        //         .Pointer => |info| switch (info.size) {
-        //             .Slice => blk: {
-        //                 const slice_length = if (value_len_or_ind == odbc.sys.SQL_NTS)
-        //                     std.mem.indexOf(u8, self.data[value_start_index..], &.{ 0x00 }) orelse self.data.len
-        //                 else
-        //                     @intCast(usize, value_len_or_ind);
-
-        //                 if (value_start_index + slice_length > self.data.len) {
-        //                     break :blk error.InvalidString;
-        //                 }
-
-        //                 var return_buffer = try self.allocator.alloc(u8, slice_length);
-        //                 std.mem.copy(u8, return_buffer, self.data[value_start_index..value_start_index + slice_length]);
-
-        //                 break :blk return_buffer;
-        //             },
-        //             else => sliceToValue(ColumnType, self.data[value_start_index..value_start_index + @intCast(usize, value_len_or_ind)]),
-        //         },
-        //         else => sliceToValue(ColumnType, self.data[value_start_index..value_start_index + @intCast(usize, value_len_or_ind)]),
-        //     };
-        // }
-    };
-}
+    }
+};
 
 pub const BindType = enum(u1) {
     row,
@@ -297,15 +178,24 @@ fn RowBindingResultSet(comptime Base: type) type {
         rows_fetched: usize = 0,
         current_row: usize = 0,
 
+        is_first: bool = true,
+
         allocator: *Allocator,
         statement: *odbc.Statement,
 
         pub fn init(allocator: *Allocator, statement: *odbc.Statement, batch_size: usize) !Self {
+            var rows = try allocator.alloc(RowType, batch_size);
+            var row_status = try allocator.alloc(RowStatus, batch_size);
+
+            try statement.setAttribute(.{ .RowBindType = @sizeOf(RowType) });
+            try statement.setAttribute(.{ .RowArraySize = batch_size });
+            try statement.setAttribute(.{ .RowStatusPointer = row_status });
+
             var self = Self{
                 .statement = statement,
                 .allocator = allocator,
-                .rows = try allocator.alloc(RowType, batch_size),
-                .row_status = try allocator.alloc(RowStatus, batch_size)
+                .rows = rows,
+                .row_status = row_status
             };
 
             try self.bindColumns();
@@ -329,6 +219,36 @@ fn RowBindingResultSet(comptime Base: type) type {
         }
 
         pub fn next(self: *Self) !?Base {
+            if (self.is_first) {
+                try self.statement.setAttribute(.{ .RowsFetchedPointer = &self.rows_fetched });
+                self.statement.fetch() catch |err| switch (err) {
+                    error.StillExecuting => {},
+                    error.NoData => {},
+                    else => {
+                        std.debug.print("Fetch failed, getting diagnostic records\n", .{});
+                        const diagnostic_records = try self.statement.getDiagnosticRecords();
+                        defer {
+                            for (diagnostic_records) |*r| r.deinit(self.allocator);
+                            self.allocator.free(diagnostic_records);
+                        }
+
+                        for (diagnostic_records) |record| {
+                            const sql_state = odbc.Error.OdbcError.fromString(record.sql_state[0..]);
+                            if (sql_state) |state| {
+                                std.debug.print("Fetch Error: {s} ({s})\n", .{record.sql_state, @tagName(state)});
+                            } else |_| {
+                                std.debug.print("Fetch Error: {s} (unknown sql_state)\n", .{record.sql_state});
+                            }
+
+                            std.debug.print("Error Message: {s}\n", .{record.error_message});
+                        }
+
+                        return err;
+                    }
+                };  
+
+                self.is_first = false;
+            }
             // @todo Does this ever happen? I'm not sure if rows_fetched will be just the maximum number of rows that it can make available
             // in buffers at the moment, or if it's the total number of rows that the query resulted in
             if (self.current_row >= self.rows_fetched) {
@@ -453,7 +373,7 @@ pub fn ColumnBindingResultSet(comptime Base: type) type {
     return struct {
         const Self = @This();
 
-        row: Row(Base),
+        row: Row,
 
         statement: *odbc.Statement,
         allocator: *Allocator,
@@ -464,7 +384,7 @@ pub fn ColumnBindingResultSet(comptime Base: type) type {
             return Self{
                 .statement = statement,
                 .allocator = allocator,
-                .row = try Row(Base).init(allocator, statement, num_columns)
+                .row = try Row.init(allocator, statement, num_columns)
             };
         }
 

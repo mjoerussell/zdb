@@ -63,39 +63,6 @@ pub const PreparedStatement = struct {
         var result_set = try ResultSet(Result, bind_type).init(self.allocator, &self.statement, size);
         errdefer result_set.deinit();
 
-        if (bind_type == .row) {
-            try self.statement.setAttribute(.{ .RowBindType = @sizeOf(RowType) });
-            try self.statement.setAttribute(.{ .RowArraySize = size });
-            try self.statement.setAttribute(.{ .RowStatusPointer = result_set.row_status });
-            try self.statement.setAttribute(.{ .RowsFetchedPointer = &result_set.rows_fetched });
-        }
-
-        self.statement.fetch() catch |err| switch (err) {
-            error.StillExecuting => {},
-            error.NoData => {},
-            else => {
-                std.debug.print("Fetch failed, getting diagnostic records\n", .{});
-                const diagnostic_records = try self.statement.getDiagnosticRecords();
-                defer {
-                    for (diagnostic_records) |*r| r.deinit(self.allocator);
-                    self.allocator.free(diagnostic_records);
-                }
-
-                for (diagnostic_records) |record| {
-                    const sql_state = odbc.Error.OdbcError.fromString(record.sql_state[0..]);
-                    if (sql_state) |state| {
-                        std.debug.print("Fetch Error: {s} ({s})\n", .{record.sql_state, @tagName(state)});
-                    } else |_| {
-                        std.debug.print("Fetch Error: {s} (unknown sql_state)\n", .{record.sql_state});
-                    }
-
-                    std.debug.print("Error Message: {s}\n", .{record.error_message});
-                }
-
-                return err;
-            }
-        };
-
         return result_set;
     }
 
