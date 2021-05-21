@@ -88,7 +88,7 @@ pub const Row = struct {
     statement: *odbc.Statement,
     allocator: *Allocator,
 
-    pub fn init(allocator: *Allocator, statement: *odbc.Statement, num_columns: usize) !Self {
+    fn init(allocator: *Allocator, statement: *odbc.Statement, num_columns: usize) !Self {
         var row: Self = undefined;
             
         row.statement = statement;
@@ -115,7 +115,7 @@ pub const Row = struct {
         return row;
     }
 
-    pub fn deinit(self: *Self) void {
+    fn deinit(self: *Self) void {
         for (self.columns) |*column| {
             self.allocator.free(column.name);
             self.allocator.free(column.data);
@@ -124,9 +124,15 @@ pub const Row = struct {
     }
 
     pub fn get(self: *Self, comptime ColumnType: type, column_name: []const u8) !ColumnType {
-        const target_column: Column = for (self.columns) |column| {
-            if (std.mem.eql(u8, column.name, column_name)) break column;
+        const column_index = for (self.columns) |column, index| {
+            if (std.mem.eql(u8, column.name, column_name)) break index;
         } else return error.ColumnNotFound;
+
+        return try self.getWithIndex(ColumnType, column_index + 1);
+    }
+
+    pub fn getWithIndex(self: *Self, comptime ColumnType: type, column_index: usize) !ColumnType {
+        const target_column = self.columns[column_index - 1];
 
         if (target_column.indicator == odbc.sys.SQL_NULL_DATA) {
             return switch (@typeInfo(ColumnType)) {
@@ -156,7 +162,6 @@ pub const Row = struct {
             },
             else => sliceToValue(ColumnType, target_column.data[0..@intCast(usize, target_column.indicator)])
         };
-
     }
 };
 
@@ -369,7 +374,7 @@ fn RowBindingResultSet(comptime Base: type) type {
     };
 }
 
-pub fn ColumnBindingResultSet(comptime Base: type) type {
+fn ColumnBindingResultSet(comptime Base: type) type {
     return struct {
         const Self = @This();
 
@@ -377,8 +382,6 @@ pub fn ColumnBindingResultSet(comptime Base: type) type {
 
         statement: *odbc.Statement,
         allocator: *Allocator,
-
-        is_first: bool = true,
 
         pub fn init(allocator: *Allocator, statement: *odbc.Statement, num_columns: usize) !Self {
             return Self{
@@ -403,15 +406,10 @@ pub fn ColumnBindingResultSet(comptime Base: type) type {
         }
 
         pub fn next(self: *Self) !?Base {
-            if (!self.is_first) {
-                // Fetching new data
-                self.statement.fetch() catch |err| switch (err) {
-                    error.NoData => return null,
-                    else => return err
-                };
-            } else {
-                self.is_first = false;
-            }
+            self.statement.fetch() catch |err| switch (err) {
+                error.NoData => return null,
+                else => return err
+            };
 
             return try Base.fromRow(&self.row, self.allocator);    
         }
