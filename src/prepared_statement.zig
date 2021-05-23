@@ -55,30 +55,10 @@ pub const PreparedStatement = struct {
     pub fn fetch(self: *PreparedStatement, comptime Result: type) !ResultSet(Result) {
         const RowType = FetchResult(Result);
 
-        var result_set = try ResultSet(Result).init(&self.statement, self.allocator);
-        errdefer result_set.deinit();
-
-        try self.statement.setAttribute(.{ .RowBindType = @sizeOf(RowType) });
-        try self.statement.setAttribute(.{ .RowArraySize = 10 });
-        try self.statement.setAttribute(.{ .RowStatusPointer = result_set.row_status });
-        try self.statement.setAttribute(.{ .RowsFetchedPointer = &result_set.rows_fetched });
-
         try self.execute();
 
-        self.statement.fetch() catch |err| switch (err) {
-            error.StillExecuting => {},
-            error.NoData => {},
-            else => {
-                var error_buf: [@sizeOf(odbc.Error.SqlState) * 3]u8 = undefined;
-                var fba = std.heap.FixedBufferAllocator.init(error_buf[0..]);
-                const errors = self.statement.getErrors(&fba.allocator) catch |_| return err;
-                for (errors) |e| {
-                    std.debug.print("Fetch Error: {s}\n", .{@tagName(e)});
-                }
-
-                return err;
-            },
-        };
+        var result_set = try ResultSet(Result).init(self.allocator, &self.statement);
+        errdefer result_set.deinit();
 
         return result_set;
     }
