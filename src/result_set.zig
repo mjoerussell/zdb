@@ -16,7 +16,7 @@ const sliceToValue = @import("util.zig").sliceToValue;
 /// 
 /// // Becomes....
 ///
-/// FetchResult(Base) {
+/// FetchResult(Base).RowType {
 ///    field1: u32,
 ///    field1_len_or_ind: c_longlong,
 ///    field2: [200]u8,
@@ -67,7 +67,60 @@ pub fn FetchResult(comptime Target: type) type {
 
             ResultInfo.Struct.fields = result_fields[0..];
 
-            return @Type(ResultInfo);
+            return struct {
+                pub const RowType = @Type(ResultInfo);
+
+                pub fn toTarget(allocator: *Allocator, row: RowType) !Target {
+                    var item: Target = undefined;
+                    inline for (std.meta.fields(Target)) |field| {
+                        const row_data = @field(row, field.name);
+                        const len_or_indicator = @field(row, field.name ++ "_len_or_ind");
+
+                        const field_type_info = @typeInfo(field.field_type);
+                        if (len_or_indicator == odbc.sys.SQL_NULL_DATA) {
+                            // Handle null data. For Optional types, set the field to null. For non-optional types with
+                            // a default value given, set the field to the default value. For all others, return
+                            // an error
+                            // @todo Not sure if an error is the most appropriate here, but it works for now
+                            if (field_type_info == .Optional) {
+                                @field(item, field.name) = null;
+                            } else if (field.default_value) |default| {
+                                @field(item, field.name) = default;
+                            } else {
+                                return error.InvalidNullValue;
+                            }
+                        } else {
+                            // If the field in Base is optional, we just want to deal with its child type. The possibility of
+                            // the value being null was handled above, so we can assume it's not here
+                            const child_info = if (field_type_info == .Optional) @typeInfo(field_type_info.Optional.child) else field_type_info;
+                            @field(item, field.name) = switch (child_info) {
+                                .Pointer => |info| switch (info.size) {
+                                    .Slice => blk: {
+                                        // For slices, we want to allocate enough memory to hold the (presumably string) data
+                                        // The string length might be indicated by a null byte, or it might be in len_or_indicator.
+                                        const slice_length: usize = if (len_or_indicator == odbc.sys.SQL_NTS)
+                                            std.mem.indexOf(u8, row_data[0..], &.{ 0x00 }) orelse row_data.len
+                                        else
+                                            @intCast(usize, len_or_indicator);
+
+                                        var data_slice = try allocator.alloc(info.child, slice_length);
+                                        std.mem.copy(info.child, data_slice, row_data[0..slice_length]);
+                                        break :blk data_slice;
+                                    },
+                                    // @warn I've never seen this come up so it might not be strictly necessary, also might be broken
+                                    else => row_data
+                                },
+                                // Convert enums back from their backing type to the enum value
+                                .Enum => @intToEnum(field.field_type, row_data),
+                                // All other data types can go right back
+                                else => row_data
+                            };
+                        }
+                    }
+
+                    return item;
+                }
+            };
         },
         else => @compileError("The base type of FetchResult must be a struct, found " ++ @typeName(Target))
     }
@@ -82,7 +135,7 @@ fn RowBindingResultSet(comptime Base: type) type {
     return struct {
         const Self = @This();
 
-        pub const RowType = FetchResult(Base);
+        pub const RowType = FetchResult(Base).RowType;
         const RowStatus = odbc.Types.StatementAttributeValue.RowStatus;
 
         rows: []RowType,
@@ -94,28 +147,26 @@ fn RowBindingResultSet(comptime Base: type) type {
         is_first: bool = true,
 
         allocator: *Allocator,
-        statement: *odbc.Statement,
+        statement: odbc.Statement,
 
         /// Initialze the ResultSet with the given batch_size. batch_size will control how many results
         /// are fetched every time `statement.fetch()` is called.
-        pub fn init(allocator: *Allocator, statement: *odbc.Statement) !Self {
-            var rows = try allocator.alloc(RowType, 20);
-            var row_status = try allocator.alloc(RowStatus, 20);
+        pub fn init(allocator: *Allocator, statement: odbc.Statement) !Self {
+            var result: Self = undefined;
+            result.statement = statement;
+            result.allocator = allocator;
 
-            try statement.setAttribute(.{ .RowBindType = @sizeOf(RowType) });
-            try statement.setAttribute(.{ .RowArraySize = 20 });
-            try statement.setAttribute(.{ .RowStatusPointer = row_status });
+            result.rows = try allocator.alloc(RowType, 20);
+            result.row_status = try allocator.alloc(RowStatus, 20);
+            
+            try result.statement.setAttribute(.{ .RowBindType = @sizeOf(RowType) });
+            try result.statement.setAttribute(.{ .RowArraySize = 20 });
+            try result.statement.setAttribute(.{ .RowStatusPointer = result.row_status });
+            try result.statement.setAttribute(.{ .RowsFetchedPointer = &result.rows_fetched });
 
-            var self = Self{
-                .statement = statement,
-                .allocator = allocator,
-                .rows = rows,
-                .row_status = row_status
-            };
+            try result.bindColumns();
 
-            try self.bindColumns();
-
-            return self;
+            return result;
         }
 
         pub fn deinit(self: *Self) void {
@@ -123,9 +174,20 @@ fn RowBindingResultSet(comptime Base: type) type {
             self.allocator.free(self.row_status);
         }
 
+        pub fn close(self: *Self) !void {
+            self.statement.closeCursor() catch |err| {
+                const errors = try self.statement.getErrors(self.allocator);
+                for (errors) |e| {
+                    if (e == .InvalidCursorState) break;
+                } else return err;
+            };
+
+            try self.statement.deinit();
+        }
+
         /// Keep fetching until all results have been retrieved.
         pub fn getAllRows(self: *Self) ![]Base {
-            var results = try std.ArrayList(Base).initCapacity(self.allocator, self.rows_fetched);
+            var results = try std.ArrayList(Base).initCapacity(self.allocator, 20);
             errdefer results.deinit();
 
             while (try self.next()) |item| {
@@ -139,109 +201,24 @@ fn RowBindingResultSet(comptime Base: type) type {
         /// fetch more results with `statement.fetch()`. If `statement.fetch()` returns `error.NoData`,
         /// this will return `null`.
         pub fn next(self: *Self) !?Base {
-            if (self.is_first) {
-                try self.statement.setAttribute(.{ .RowsFetchedPointer = &self.rows_fetched });
-                self.statement.fetch() catch |err| switch (err) {
-                    error.StillExecuting => {},
-                    error.NoData => {},
-                    else => {
-                        std.debug.print("Fetch failed, getting diagnostic records\n", .{});
-                        const diagnostic_records = try self.statement.getDiagnosticRecords();
-                        defer {
-                            for (diagnostic_records) |*r| r.deinit(self.allocator);
-                            self.allocator.free(diagnostic_records);
-                        }
-
-                        for (diagnostic_records) |record| {
-                            const sql_state = odbc.Error.OdbcError.fromString(record.sql_state[0..]);
-                            if (sql_state) |state| {
-                                std.debug.print("Fetch Error: {s} ({s})\n", .{record.sql_state, @tagName(state)});
-                            } else |_| {
-                                std.debug.print("Fetch Error: {s} (unknown sql_state)\n", .{record.sql_state});
-                            }
-
-                            std.debug.print("Error Message: {s}\n", .{record.error_message});
-                        }
-
-                        return err;
-                    }
-                };  
-
-                self.is_first = false;
-            }
-            // @todo Does this ever happen? I'm not sure if rows_fetched will be just the maximum number of rows that it can make available
-            // in buffers at the moment, or if it's the total number of rows that the query resulted in
-            if (self.current_row >= self.rows_fetched) {
-                // Because of the param binding in PreparedStatement.fetch, this will update self.rows_fetched
-                // @todo async - Handle error.StillExecuting here
+            if (self.current_row >= self.rows_fetched or self.is_first) {
                 self.statement.fetch() catch |err| switch (err) {
                     error.NoData => return null,
                     else => return err
                 };
                 self.current_row = 0;
+                self.is_first = false;
             }
 
-            if (self.current_row < self.rows_fetched) {
-                // Iterate until you find the next row that returned Success or SuccessWithInfo. Should generally be the original current row
-                while (self.current_row < self.rows_fetched and self.row_status[self.current_row] != .Success and self.row_status[self.current_row] != .SuccessWithInfo) {
-                    self.current_row += 1;
+            while (self.current_row < self.rows_fetched and self.current_row < self.rows.len) : (self.current_row += 1) {
+                switch (self.row_status[self.current_row]) {
+                    .Success, .SuccessWithInfo => {
+                        const item_row = self.rows[self.current_row];
+                        self.current_row += 1;
+                        return try FetchResult(Base).toTarget(self.allocator, item_row);
+                    },
+                    else => {}
                 }
-
-                if (self.current_row >= self.rows_fetched) return null;
-
-                const item_row = self.rows[self.current_row];
-                
-                // Get each field of Base from the current RowType value and convert it back
-                // to its original form
-                var item: Base = undefined;
-                inline for (std.meta.fields(Base)) |field| {
-                    const row_data = @field(item_row, field.name);
-                    const len_or_indicator = @field(item_row, field.name ++ "_len_or_ind");
-
-                    const field_type_info = @typeInfo(field.field_type);
-                    if (len_or_indicator == odbc.sys.SQL_NULL_DATA) {
-                        // Handle null data. For Optional types, set the field to null. For non-optional types with
-                        // a default value given, set the field to the default value. For all others, return
-                        // an error
-                        // @todo Not sure if an error is the most appropriate here, but it works for now
-                        if (field_type_info == .Optional) {
-                            @field(item, field.name) = null;
-                        } else if (field.default_value) |default| {
-                            @field(item, field.name) = default;
-                        } else {
-                            return error.InvalidNullValue;
-                        }
-                    } else {
-                        // If the field in Base is optional, we just want to deal with its child type. The possibility of
-                        // the value being null was handled above, so we can assume it's not here
-                        const child_info = if (field_type_info == .Optional) @typeInfo(field_type_info.Optional.child) else field_type_info;
-                        @field(item, field.name) = switch (child_info) {
-                            .Pointer => |info| switch (info.size) {
-                                .Slice => blk: {
-                                    // For slices, we want to allocate enough memory to hold the (presumably string) data
-                                    // The string length might be indicated by a null byte, or it might be in len_or_indicator.
-                                    const slice_length: usize = if (len_or_indicator == odbc.sys.SQL_NTS)
-                                        std.mem.indexOf(u8, row_data[0..], &.{ 0x00 }) orelse row_data.len
-                                    else
-                                        @intCast(usize, len_or_indicator);
-
-                                    var data_slice = try self.allocator.alloc(info.child, slice_length);
-                                    std.mem.copy(info.child, data_slice, row_data[0..slice_length]);
-                                    break :blk data_slice;
-                                },
-                                // @warn I've never seen this come up so it might not be strictly necessary, also might be broken
-                                else => row_data
-                            },
-                            // Convert enums back from their backing type to the enum value
-                            .Enum => @intToEnum(field.field_type, row_data),
-                            // All other data types can go right back
-                            else => row_data
-                        };
-                    }
-                }
-
-                self.current_row += 1;
-                return item;
             }
 
             return null;
@@ -399,17 +376,24 @@ fn ColumnBindingResultSet(comptime Base: type) type {
 
         row: Row,
 
-        statement: *odbc.Statement,
+        statement: odbc.Statement,
         allocator: *Allocator,
 
-        pub fn init(allocator: *Allocator, statement: *odbc.Statement) !Self {
-            const num_columns = try statement.numResultColumns();
+        pub fn init(allocator: *Allocator, statement: odbc.Statement) !Self {
+            var result: Self = undefined;
+            result.statement = statement;
+            result.allocator = allocator;
 
-            return Self{
-                .statement = statement,
-                .allocator = allocator,
-                .row = try Row.init(allocator, statement, num_columns)
-            };
+
+            const num_columns = try result.statement.numResultColumns();
+            
+            result.row = try Row.init(allocator, &result.statement, num_columns);
+            return result;
+            // return Self{
+            //     .statement = statement,
+            //     .allocator = allocator,
+            //     .row = try Row.init(allocator, statement, num_columns)
+            // };
         }
 
         pub fn deinit(self: *Self) void {

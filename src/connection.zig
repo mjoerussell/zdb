@@ -257,7 +257,7 @@ pub const DBConnection = struct {
         }
     }
 
-    pub fn executeDirect(self: *DBConnection, comptime ResultType: type, statement: *odbc.Statement, sql_statement: []const u8, params: anytype) !ResultSet(ResultType) {
+    pub fn executeDirect(self: *DBConnection, comptime ResultType: type, sql_statement: []const u8, params: anytype) !ResultSet(ResultType) {
         var num_params: usize = 0;
         for (sql_statement) |c| {
             if (c == '?') num_params += 1;
@@ -265,18 +265,8 @@ pub const DBConnection = struct {
 
         if (num_params != params.len) return error.InvalidNumParams;
 
-        // var statement = self.getStatement() catch |stmt_err| {
-        //     var error_buf: [@sizeOf(odbc.Error.SqlState) * 3]u8 = undefined;
-        //     var fba = std.heap.FixedBufferAllocator.init(error_buf[0..]);
-
-        //     const errors = try self.connection.getErrors(&fba.allocator);
-
-        //     for (errors) |e| {
-        //         std.debug.print("Statement init error: {s}\n", .{@tagName(e)});
-        //     }
-        //     return error.StatementError;
-        // };
-        // errdefer statement.deinit() catch |_| {};
+        var statement = try self.getStatement();
+        errdefer statement.deinit() catch |_| {};
 
         var parameter_bucket = try ParameterBucket.init(self.allocator, num_params);
         defer parameter_bucket.deinit();
@@ -297,7 +287,6 @@ pub const DBConnection = struct {
 
         _ = try statement.executeDirect(sql_statement);
 
-        // return try ResultSet(ResultType).init(self.allocator, &statement);
         return try ResultSet(ResultType).init(self.allocator, statement);
     }
 
@@ -338,7 +327,7 @@ pub const DBConnection = struct {
         var statement = try self.getStatement();
         defer statement.deinit() catch |_| {};
 
-        var result_set = try ResultSet(Column).init(self.allocator, &statement);
+        var result_set = try ResultSet(Column).init(self.allocator, statement);
         defer result_set.deinit();
 
         try statement.columns(catalog_name, schema_name, table_name, null);
