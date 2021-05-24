@@ -57,7 +57,7 @@ pub const PreparedStatement = struct {
 
         try self.execute();
 
-        return try ResultSet(Result).init(self.allocator, &self.statement);
+        return try ResultSet(Result).init(self.allocator, self.statement);
         // return result_set;
     }
 
