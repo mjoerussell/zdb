@@ -72,32 +72,32 @@ pub fn main() !void {
     // });
 
     // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test WHERE occupation = ?");
-    // var prepared_statement = try connection.prepareStatement(
-    //     \\SELECT *  
-    //     \\FROM odbc_zig_test 
-    //     \\WHERE name = ? OR age < ?
-    // );
-    // // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test");
-    // defer prepared_statement.deinit();
-
-    // try prepared_statement.addParams(.{
-    //     .{1, "Reese"},
-    //     .{2, 30},
-    // });
-
-    // var result_set = try prepared_statement.fetch(OdbcTestType);
-    // defer result_set.deinit();
-    
-    var result_set = try connection.executeDirect(OdbcTestType,
-        \\SELECT *
-        \\FROM odbc_zig_test
+    var prepared_statement = try connection.prepareStatement(
+        \\SELECT *  
+        \\FROM odbc_zig_test 
         \\WHERE name = ? OR age < ?
-        ,.{ "Reese", 30 }
     );
-    defer {
-        result_set.close() catch |_| {};
-        result_set.deinit();
-    }
+    // // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test");
+    defer prepared_statement.deinit();
+
+    try prepared_statement.addParams(.{
+        .{1, "Reese"},
+        .{2, 30},
+    });
+
+    var result_set = try prepared_statement.execute(OdbcTestType);
+    defer result_set.deinit();
+    
+    // var result_set = try connection.executeDirect(OdbcTestType,
+    //     \\SELECT *
+    //     \\FROM odbc_zig_test
+    //     \\WHERE name = ? OR age < ?
+    //     ,.{ "Reese", 30 }
+    // );
+    // defer {
+    //     result_set.close() catch |_| {};
+    //     result_set.deinit();
+    // }
 
     const query_results: []OdbcTestType = try result_set.getAllRows();
     defer {

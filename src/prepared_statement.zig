@@ -46,19 +46,11 @@ pub const PreparedStatement = struct {
         self.statement.deinit() catch |_| {};
     }
 
-    pub fn execute(self: *PreparedStatement) !void {
-        _ = try self.statement.execute();
-    }
-
     /// Execute the current statement, binding the result columns to the fields of the type `Result`.
     /// Returns a ResultSet from which each row can be retrieved.
-    pub fn fetch(self: *PreparedStatement, comptime Result: type) !ResultSet(Result) {
-        const RowType = FetchResult(Result);
-
-        try self.execute();
-
+    pub fn execute(self: *PreparedStatement, comptime Result: type) !ResultSet(Result) {
+        _ = try self.statement.execute();
         return try ResultSet(Result).init(self.allocator, self.statement);
-        // return result_set;
     }
 
     /// Bind a value to a parameter index on the current statement. Parameter indices start at `1`.
