@@ -257,7 +257,7 @@ pub const DBConnection = struct {
         }
     }
 
-    pub fn executeDirect(self: *DBConnection, comptime ResultType: type, sql_statement: []const u8, params: anytype) !ResultSet(ResultType) {
+    pub fn executeDirect(self: *DBConnection, comptime ResultType: type, params: anytype, sql_statement: []const u8) !ResultSet(ResultType) {
         var num_params: usize = 0;
         for (sql_statement) |c| {
             if (c == '?') num_params += 1;
