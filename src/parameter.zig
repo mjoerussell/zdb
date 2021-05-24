@@ -37,7 +37,14 @@ pub fn default(value: anytype) SqlParameter(EraseComptime(@TypeOf(value))) {
 }
 
 pub const ParameterBucket = struct {
-    data: std.ArrayListUnmanaged(u8),
+    pub const Param = struct {
+        param: *c_void,
+        indicator: *c_longlong,
+    };
+
+    // data: std.ArrayListAlignedUnmanaged(u8, null),
+    data: std.ArrayListAlignedUnmanaged(u8, null),
+    param_indices: std.ArrayListUnmanaged(usize),
     indicators: []c_longlong,
 
     allocator: *Allocator,
@@ -45,19 +52,26 @@ pub const ParameterBucket = struct {
     pub fn init(allocator: *Allocator, num_params: usize) !ParameterBucket {
         return ParameterBucket{
             .allocator = allocator,
-            .data = try std.ArrayListUnmanaged(u8).initCapacity(allocator, num_params * 8),
+            // .data = try std.ArrayListAlignedUnmanaged(u8, null).initCapacity(allocator, num_params * 8),
+            .data = try std.ArrayListAlignedUnmanaged(u8, null).initCapacity(allocator, num_params * 8),
+            .param_indices = try std.ArrayListUnmanaged(usize).initCapacity(allocator, num_params),
             .indicators = try allocator.alloc(c_longlong, num_params)
         };
     }
 
     pub fn deinit(self: *ParameterBucket) void {
+        // for (self.data.items) |ptr| self.allocator.destroy(ptr);
         self.data.deinit(self.allocator);
-        self.allocator.free(indicators);
+        self.param_indices.deinit(self.allocator);
+        self.allocator.free(self.indicators);
     }
 
-    pub fn addParameter(self: *ParameterBucket, index: usize, param: anytype) !*EraseComptime(@TypeOf(param)) {
+    pub fn addParameter(self: *ParameterBucket, index: usize, param: anytype) !Param {
         const ParamType = EraseComptime(@TypeOf(param));
+
         const param_index = self.data.items.len;
+        try self.param_indices.append(self.allocator, param_index);
+
         if (comptime std.meta.trait.isZigString(ParamType)) {
             try self.data.appendSlice(self.allocator, param);
             self.indicators[index] = @intCast(c_longlong, param.len);
@@ -66,8 +80,40 @@ pub const ParameterBucket = struct {
             self.indicators[index] = @sizeOf(ParamType);
         }
         
-        return @ptrCast(*ParamType, &self.data.items[param_index]);
+        // const param_ptr = @ptrCast(*ParamType, @alignCast(@alignOf(ParamType), &self.data.items[param_index]));
+
+        return Param{
+            .param = @ptrCast(*c_void, &self.data.items[param_index]),
+            .indicator = &self.indicators[index]
+        };
     }
+
+    // pub fn addParameter(self: *ParameterBucket, index: usize, param: anytype) !Param(@TypeOf(param)) {
+    //     const ParamType = EraseComptime(@TypeOf(param));
+
+    //     const param_index = self.data.items.len;
+    //     var param_ptr = try self.allocator.create(ParamType);
+    //     param_ptr.* = param;
+
+    //     try self.data.append(self.allocator, @ptrCast(*c_void, param_ptr));
+        
+    //     self.indicators[index] = if (comptime std.meta.trait.isZigString(ParamType)) @intCast(c_longlong, param.len) else @sizeOf(ParamType);
+    //     // if (comptime std.meta.trait.isZigString(ParamType)) {
+            
+    //     //     // try self.data.appendSlice(self.allocator, param);
+    //     //     self.indicators[index] = @intCast(c_longlong, param.len);
+    //     // } else {
+    //     //     // try self.data.appendSlice(self.allocator, std.mem.toBytes(@as(ParamType, param))[0..]);
+    //     //     self.indicators[index] = @sizeOf(ParamType);
+    //     // }
+        
+    //     // const param_ptr = @ptrCast(*ParamType, @alignCast(@alignOf(ParamType), &self.data.items[param_index]));
+
+    //     return Param(@TypeOf(param)){
+    //         .param = param_ptr,
+    //         .index = param_index,
+    //     };
+    // }
 };
 
 test "SqlParameter defaults" {

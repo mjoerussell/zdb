@@ -57,28 +57,15 @@ pub const PreparedStatement = struct {
 
         try self.execute();
 
-        var result_set = try ResultSet(Result).init(self.allocator, &self.statement);
-        errdefer result_set.deinit();
-
-        return result_set;
+        return try ResultSet(Result).init(self.allocator, &self.statement);
+        // return result_set;
     }
 
     /// Bind a value to a parameter index on the current statement. Parameter indices start at `1`.
     pub fn addParam(self: *PreparedStatement, index: usize, param: anytype) !void {
         if (index > self.num_params) return error.InvalidParamIndex;
 
-        // const param_index = self.param_data.items.len;
-        // if (comptime std.meta.trait.isZigString(@TypeOf(param))) {
-        //     try self.param_data.appendSlice(self.allocator, param);
-        //     self.param_indicators[index - 1] = @intCast(c_longlong, param.len);
-        // } else {
-        //     const ParamType = EraseComptime(@TypeOf(param));
-        //     try self.param_data.appendSlice(self.allocator, std.mem.toBytes(@as(ParamType, param))[0..]);
-        //     self.param_indicators[index - 1] = @sizeOf(ParamType);
-        // }
-
-        // const param_ptr = &self.param_data.items[param_index];
-        const param_ptr = self.parameters.addParameter(index - 1, param);
+        const stored_param = try self.parameters.addParameter(index - 1, param);
         const sql_param = sql_parameter.default(param);
 
         try self.statement.bindParameter(
@@ -86,9 +73,9 @@ pub const PreparedStatement = struct {
             .Input, 
             sql_param.c_type, 
             sql_param.sql_type, 
-            @ptrCast(*c_void, param_ptr), 
+            stored_param.param, 
             sql_param.precision, 
-            &self.param_indicators[index - 1]
+            stored_param.indicator,
         );
     }
 

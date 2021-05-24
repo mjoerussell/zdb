@@ -72,20 +72,29 @@ pub fn main() !void {
     // });
 
     // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test WHERE occupation = ?");
-    var prepared_statement = try connection.prepareStatement(
-        \\SELECT *  
-        \\FROM odbc_zig_test 
-        // \\WHERE name = ? OR age < ?
-    );
-    // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test");
-    defer prepared_statement.deinit();
+    // var prepared_statement = try connection.prepareStatement(
+    //     \\SELECT *  
+    //     \\FROM odbc_zig_test 
+    //     \\WHERE name = ? OR age < ?
+    // );
+    // // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test");
+    // defer prepared_statement.deinit();
 
     // try prepared_statement.addParams(.{
     //     .{1, "Reese"},
     //     .{2, 30},
     // });
 
-    var result_set = try prepared_statement.fetch(OdbcTestType);
+    // var result_set = try prepared_statement.fetch(OdbcTestType);
+    // defer result_set.deinit();
+    
+    var statement = try connection.getStatement();
+    var result_set = try connection.executeDirect(OdbcTestType, &statement, 
+        \\SELECT *
+        \\FROM odbc_zig_test
+        \\WHERE name = ? OR age < ?
+        ,.{ "Reese", 30 }
+    );
     defer result_set.deinit();
 
     // std.debug.print("Rows fetched: {}\n", .{result_set.rows_fetched});
