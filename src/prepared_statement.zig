@@ -16,11 +16,6 @@ pub const PreparedStatement = struct {
     statement: odbc.Statement,
     num_params: usize,
 
-    // Should pull out the param storing logic into it's own struct,
-    // that way the same thing can be used in isolation later when I add executeDirect()
-    // and need to store parameters in a more temporary way
-    // param_data: std.ArrayListUnmanaged(u8),
-    // param_indicators: []c_longlong,
     parameters: ParameterBucket,
 
     allocator: *Allocator,
@@ -29,8 +24,6 @@ pub const PreparedStatement = struct {
         return PreparedStatement{ 
             .statement = statement, 
             .num_params = num_params, 
-            // .param_data = try std.ArrayListUnmanaged(u8).initCapacity(allocator, num_params * 8), 
-            // .param_indicators = try allocator.alloc(c_longlong, num_params), 
             .parameters = try ParameterBucket.init(allocator, num_params),
             .allocator = allocator 
         };
@@ -39,8 +32,6 @@ pub const PreparedStatement = struct {
     /// Free allocated memory, close any open cursors, and deinitialize the statement. The underlying statement
     /// will become invalidated after calling this function.
     pub fn deinit(self: *PreparedStatement) void {
-        // self.param_data.deinit(self.allocator);
-        // self.allocator.free(self.param_indicators);
         self.parameters.deinit();
         self.close() catch |_| {};
         self.statement.deinit() catch |_| {};
