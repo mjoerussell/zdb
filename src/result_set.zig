@@ -155,6 +155,9 @@ fn RowBindingResultSet(comptime Base: type) type {
             var result: Self = undefined;
             result.statement = statement;
             result.allocator = allocator;
+            result.rows_fetched = 0;
+            result.current_row = 0;
+            result.is_first = true;
 
             result.rows = try allocator.alloc(RowType, 20);
             result.row_status = try allocator.alloc(RowStatus, 20);
@@ -201,7 +204,10 @@ fn RowBindingResultSet(comptime Base: type) type {
         /// fetch more results with `statement.fetch()`. If `statement.fetch()` returns `error.NoData`,
         /// this will return `null`.
         pub fn next(self: *Self) !?Base {
-            if (self.current_row >= self.rows_fetched or self.is_first) {
+            if (self.is_first) {
+                try self.statement.setAttribute(.{ .RowsFetchedPointer = &self.rows_fetched });
+            }
+            if (self.current_row >= self.rows_fetched) {
                 self.statement.fetch() catch |err| switch (err) {
                     error.NoData => return null,
                     else => return err
@@ -228,7 +234,7 @@ fn RowBindingResultSet(comptime Base: type) type {
         /// After this function is called + `statement.fetch()`, you can retrieve
         /// result data from this struct.
         pub fn bindColumns(self: *Self) !void {
-            var column_number: u16 = 1;
+            comptime var column_number: u16 = 1;
             inline for (std.meta.fields(RowType)) |field| {
                 comptime if (std.mem.endsWith(u8, field.name, "_len_or_ind")) continue;
 

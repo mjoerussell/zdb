@@ -98,7 +98,6 @@ pub fn main() !void {
         result_set.close() catch |_| {};
         result_set.deinit();
     }
-    std.debug.print("Got result set\n", .{});
 
     const query_results: []OdbcTestType = try result_set.getAllRows();
     defer {
