@@ -165,7 +165,6 @@ fn RowBindingResultSet(comptime Base: type) type {
             try result.statement.setAttribute(.{ .RowBindType = @sizeOf(RowType) });
             try result.statement.setAttribute(.{ .RowArraySize = 20 });
             try result.statement.setAttribute(.{ .RowStatusPointer = result.row_status });
-            try result.statement.setAttribute(.{ .RowsFetchedPointer = &result.rows_fetched });
 
             try result.bindColumns();
 
@@ -390,16 +389,10 @@ fn ColumnBindingResultSet(comptime Base: type) type {
             result.statement = statement;
             result.allocator = allocator;
 
-
             const num_columns = try result.statement.numResultColumns();
-            
             result.row = try Row.init(allocator, &result.statement, num_columns);
+
             return result;
-            // return Self{
-            //     .statement = statement,
-            //     .allocator = allocator,
-            //     .row = try Row.init(allocator, statement, num_columns)
-            // };
         }
 
         pub fn deinit(self: *Self) void {
