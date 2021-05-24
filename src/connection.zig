@@ -7,6 +7,9 @@ const PreparedStatement = @import("prepared_statement.zig").PreparedStatement;
 const ResultSet = @import("result_set.zig").ResultSet;
 const FetchResult = @import("result_set.zig").FetchResult;
 
+const sql_parameter = @import("parameter.zig");
+const ParameterBucket = sql_parameter.ParameterBucket;
+
 // @todo Move this to a general "catalog data structs" file
 pub const Column = struct {
     table_category: ?[]const u8,
@@ -254,15 +257,45 @@ pub const DBConnection = struct {
         }
     }
 
+    pub fn executeDirect(self: *DBConnection, comptime ResultType: type, params: anytype, sql_statement: []const u8) !ResultSet(ResultType) {
+        var num_params: usize = 0;
+        for (sql_statement) |c| {
+            if (c == '?') num_params += 1;
+        }
+
+        if (num_params != params.len) return error.InvalidNumParams;
+
+        var statement = try self.getStatement();
+        errdefer statement.deinit() catch |_| {};
+
+        var parameter_bucket = try ParameterBucket.init(self.allocator, num_params);
+        defer parameter_bucket.deinit();
+
+        inline for (params) |param, index| {
+            const stored_param = try parameter_bucket.addParameter(index, param);
+            const sql_param = sql_parameter.default(param);
+            try statement.bindParameter(
+                @intCast(u16, index + 1), 
+                .Input, 
+                sql_param.c_type, 
+                sql_param.sql_type, 
+                stored_param.param, 
+                sql_param.precision, 
+                stored_param.indicator,
+            );
+        }
+
+        _ = try statement.executeDirect(sql_statement);
+
+        return try ResultSet(ResultType).init(self.allocator, statement);
+    }
+
     /// Create a prepared statement from the specified SQL statement. 
-    pub fn prepareStatement(self: *DBConnection, comptime sql_statement: []const u8) !PreparedStatement {
-        const num_params: usize = comptime blk: {
-            var count: usize = 0;
-            inline for (sql_statement) |c| {
-                if (c == '?') count += 1;
-            }
-            break :blk count;
-        };
+    pub fn prepareStatement(self: *DBConnection, sql_statement: []const u8) !PreparedStatement {
+        var num_params: usize = 0;
+        for (sql_statement) |c| {
+            if (c == '?') num_params += 1;
+        }
 
         var statement = try self.getStatement();
         errdefer statement.deinit() catch |_| {};
@@ -294,7 +327,7 @@ pub const DBConnection = struct {
         var statement = try self.getStatement();
         defer statement.deinit() catch |_| {};
 
-        var result_set = try ResultSet(Column).init(self.allocator, &statement);
+        var result_set = try ResultSet(Column).init(self.allocator, statement);
         defer result_set.deinit();
 
         try statement.columns(catalog_name, schema_name, table_name, null);
