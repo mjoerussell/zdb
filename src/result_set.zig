@@ -176,17 +176,6 @@ fn RowBindingResultSet(comptime Base: type) type {
             self.allocator.free(self.row_status);
         }
 
-        pub fn close(self: *Self) !void {
-            self.statement.closeCursor() catch |err| {
-                const errors = try self.statement.getErrors(self.allocator);
-                for (errors) |e| {
-                    if (e == .InvalidCursorState) break;
-                } else return err;
-            };
-
-            try self.statement.deinit();
-        }
-
         /// Keep fetching until all results have been retrieved.
         pub fn getAllRows(self: *Self) ![]Base {
             var results = try std.ArrayList(Base).initCapacity(self.allocator, 20);

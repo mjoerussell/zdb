@@ -88,19 +88,46 @@ pub fn main() !void {
     // var result_set = try prepared_statement.execute(OdbcTestType);
     // defer result_set.deinit();
     
-    var result_set = try connection.executeDirect(
-        OdbcTestType,
+    // var result_set = try connection.executeDirect(
+    //     OdbcTestType,
+    //     .{ "Reese", 30 },
+    //     \\SELECT *
+    //     \\FROM odbc_zig_test
+    //     \\WHERE name = ? OR age < ?
+    // );
+    // defer {
+    //     result_set.close() catch |_| {};
+    //     result_set.deinit();
+    // }
+    var cursor = try connection.getCursor();
+    defer cursor.deinit() catch |_| {};
+
+    // var result_set = try cursor.executeDirect(
+    //     OdbcTestType,
+    //     .{ "Reese", 30 },
+    //     \\SELECT *
+    //     \\FROM odbc_zig_test
+    //     \\WHERE name < ? OR age < ?
+    // );
+    // defer result_set.deinit();
+
+    // const query_results: []OdbcTestType = try result_set.getAllRows();
+    // defer {
+    //     for (query_results) |*q| q.deinit(allocator);
+    //     allocator.free(query_results);
+    // }
+
+    try cursor.prepare(
         .{ "Reese", 30 },
         \\SELECT *
         \\FROM odbc_zig_test
-        \\WHERE name = ? OR age < ?
+        \\WHERE name < ? OR age < ?
     );
-    defer {
-        result_set.close() catch |_| {};
-        result_set.deinit();
-    }
 
-    const query_results: []OdbcTestType = try result_set.getAllRows();
+    var result_set = try cursor.execute(OdbcTestType);
+    defer result_set.deinit();
+
+    const query_results = try result_set.getAllRows();
     defer {
         for (query_results) |*q| q.deinit(allocator);
         allocator.free(query_results);
