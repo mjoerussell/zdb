@@ -97,7 +97,6 @@ pub const Cursor = struct {
     }
 
     pub fn insert(self: *Cursor, comptime DataType: type, comptime table_name: []const u8, values: []const DataType) !usize {
-        // @todo Maybe return num rows inserted?
         comptime const num_fields = std.meta.fields(DataType).len;
 
         const insert_statement = comptime blk: {
