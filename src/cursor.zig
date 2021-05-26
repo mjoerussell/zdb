@@ -10,6 +10,9 @@ const ParameterBucket = sql_parameter.ParameterBucket;
 
 const ResultSet = @import("result_set.zig").ResultSet;
 
+const catalog_types = @import("catalog.zig");
+const Column = catalog_types.Column;
+
 pub const Cursor = struct {
 
     parameters: ?ParameterBucket = null,
@@ -149,6 +152,15 @@ pub const Cursor = struct {
     /// this, if in a situation where you are using multiple cursors simultaneously.
     pub fn rollback(self: *Cursor) !void {
         try self.connection.endTransaction(.rollback);
+    }
+
+    pub fn columns(self: *Cursor, catalog_name: []const u8, schema_name: []const u8, table_name: []const u8) ![]Column {
+        var result_set = try ResultSet(Column).init(self.allocator, self.statement);
+        defer result_set.deinit();
+
+        try self.statement.columns(catalog_name, schema_name, table_name, null);
+
+        return try result_set.getAllRows();
     }
 
     /// Bind a single value to a SQL parameter. If `self.parameters` is `null`, this does nothing

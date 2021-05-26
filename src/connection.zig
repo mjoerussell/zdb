@@ -12,39 +12,6 @@ const ParameterBucket = sql_parameter.ParameterBucket;
 
 const Cursor = @import("cursor.zig").Cursor;
 
-// @todo Move this to a general "catalog data structs" file
-pub const Column = struct {
-    table_category: ?[]const u8,
-    table_schema: ?[]const u8,
-    table_name: []const u8,
-    column_name: []const u8,
-    data_type: u16,
-    type_name: []const u8,
-    column_size: ?u32,
-    buffer_length: ?u32,
-    decimal_digits: ?u16,
-    num_prec_radix: ?u16,
-    nullable: odbc.Types.Nullable,
-    remarks: ?[]const u8,
-    column_def: ?[]const u8,
-    sql_data_type: odbc.Types.SqlType,
-    sql_datetime_sub: ?u16,
-    char_octet_length: ?u32,
-    ordinal_position: u32,
-    is_nullable: ?[]const u8,
-
-    pub fn deinit(self: *Column, allocator: *Allocator) void {
-        if (self.table_category) |tc| allocator.free(tc);
-        if (self.table_schema) |ts| allocator.free(ts);
-        allocator.free(self.table_name);
-        allocator.free(self.column_name);
-        allocator.free(self.type_name);
-        if (self.remarks) |r| allocator.free(r);
-        if (self.column_def) |cd| allocator.free(cd);
-        if (self.is_nullable) |in| allocator.free(in);
-    }
-};
-
 pub const ConnectionInfo = struct {
     pub const Config = struct {
         driver: ?[]const u8 = null,
@@ -220,18 +187,6 @@ pub const DBConnection = struct {
         return try Cursor.init(self.allocator, self.connection);
     }
 
-    /// Get information about the columns of a given table.
-    pub fn getColumns(self: *DBConnection, catalog_name: []const u8, schema_name: []const u8, table_name: []const u8) ![]Column {
-        var statement = try self.getStatement();
-        defer statement.deinit() catch |_| {};
-
-        var result_set = try ResultSet(Column).init(self.allocator, statement);
-        defer result_set.deinit();
-
-        try statement.columns(catalog_name, schema_name, table_name, null);
-
-        return try result_set.getAllRows();
-    }
 };
 
 test "ConnectionInfo" {
