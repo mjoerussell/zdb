@@ -154,7 +154,7 @@ pub const Cursor = struct {
         try self.connection.endTransaction(.rollback);
     }
 
-    pub fn columns(self: *Cursor, catalog_name: []const u8, schema_name: []const u8, table_name: []const u8) ![]Column {
+    pub fn columns(self: *Cursor, catalog_name: ?[]const u8, schema_name: ?[]const u8, table_name: []const u8) ![]Column {
         var result_set = try ResultSet(Column).init(self.allocator, self.statement);
         defer result_set.deinit();
 
@@ -201,6 +201,10 @@ pub const Cursor = struct {
     fn clearParameters(self: *Cursor) void {
         if (self.parameters) |*p| p.deinit();
         self.parameters = null;
+    }
+
+    pub fn getErrors(self: *Cursor) []odbc.Error.DiagnosticRecord {
+        return self.statement.getDiagnosticRecords() catch |_| return &[_]odbc.Error.DiagnosticRecord{};
     }
 
 

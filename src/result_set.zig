@@ -8,7 +8,7 @@ const sliceToValue = @import("util.zig").sliceToValue;
 /// Given a struct, generate a new struct that can be used for ODBC row-wise binding. The conversion goes
 /// roughly like this;
 /// ```
-/// struct Base {
+/// const Base = struct {
 ///    field1: u32,
 ///    field2: []const u8,
 ///    field3: ?[]const u8
@@ -16,7 +16,7 @@ const sliceToValue = @import("util.zig").sliceToValue;
 /// 
 /// // Becomes....
 ///
-/// FetchResult(Base).RowType {
+/// const FetchResult(Base).RowType = struct {
 ///    field1: u32,
 ///    field1_len_or_ind: c_longlong,
 ///    field2: [200]u8,
@@ -73,6 +73,7 @@ pub fn FetchResult(comptime Target: type) type {
                 pub fn toTarget(allocator: *Allocator, row: RowType) !Target {
                     var item: Target = undefined;
                     inline for (std.meta.fields(Target)) |field| {
+                        @setEvalBranchQuota(1_000_000);
                         const row_data = @field(row, field.name);
                         const len_or_indicator = @field(row, field.name ++ "_len_or_ind");
 
@@ -152,6 +153,7 @@ fn RowBindingResultSet(comptime Base: type) type {
         /// Initialze the ResultSet with the given batch_size. batch_size will control how many results
         /// are fetched every time `statement.fetch()` is called.
         pub fn init(allocator: *Allocator, statement: odbc.Statement) !Self {
+            const batch_size = 1000;
             var result: Self = undefined;
             result.statement = statement;
             result.allocator = allocator;
@@ -159,11 +161,11 @@ fn RowBindingResultSet(comptime Base: type) type {
             result.current_row = 0;
             result.is_first = true;
 
-            result.rows = try allocator.alloc(RowType, 20);
-            result.row_status = try allocator.alloc(RowStatus, 20);
+            result.rows = try allocator.alloc(RowType, batch_size);
+            result.row_status = try allocator.alloc(RowStatus, batch_size);
             
             try result.statement.setAttribute(.{ .RowBindType = @sizeOf(RowType) });
-            try result.statement.setAttribute(.{ .RowArraySize = 20 });
+            try result.statement.setAttribute(.{ .RowArraySize = batch_size });
             try result.statement.setAttribute(.{ .RowStatusPointer = result.row_status });
 
             try result.bindColumns();
@@ -194,35 +196,39 @@ fn RowBindingResultSet(comptime Base: type) type {
         pub fn next(self: *Self) !?Base {
             if (self.is_first) {
                 try self.statement.setAttribute(.{ .RowsFetchedPointer = &self.rows_fetched });
-            }
-            if (self.current_row >= self.rows_fetched) {
-                self.statement.fetch() catch |err| switch (err) {
-                    error.NoData => return null,
-                    else => return err
-                };
-                self.current_row = 0;
                 self.is_first = false;
             }
 
-            while (self.current_row < self.rows_fetched and self.current_row < self.rows.len) : (self.current_row += 1) {
-                switch (self.row_status[self.current_row]) {
-                    .Success, .SuccessWithInfo => {
-                        const item_row = self.rows[self.current_row];
-                        self.current_row += 1;
-                        return try FetchResult(Base).toTarget(self.allocator, item_row);
-                    },
-                    else => {}
+            while (true) {
+                if (self.current_row >= self.rows_fetched) {
+                    self.statement.fetch() catch |err| switch (err) {
+                        error.NoData => return null,
+                        else => return err
+                    };
+                    self.current_row = 0;
+                }
+
+                while (self.current_row < self.rows_fetched and self.current_row < self.rows.len) : (self.current_row += 1) {
+                    switch (self.row_status[self.current_row]) {
+                        .Success, .SuccessWithInfo, .Error => {
+                            const item_row = self.rows[self.current_row];
+                            self.current_row += 1;
+                            return try FetchResult(Base).toTarget(self.allocator, item_row);
+                        },
+                        else => {}
+                    }
                 }
             }
 
-            return null;
         }
 
         /// Bind each column of the result set to their associated row buffers.
         /// After this function is called + `statement.fetch()`, you can retrieve
         /// result data from this struct.
         pub fn bindColumns(self: *Self) !void {
+            @setEvalBranchQuota(1_000_000);
             comptime var column_number: u16 = 1;
+
             inline for (std.meta.fields(RowType)) |field| {
                 comptime if (std.mem.endsWith(u8, field.name, "_len_or_ind")) continue;
 
