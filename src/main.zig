@@ -62,6 +62,8 @@ pub fn main() !void {
     var connection = try DBConnection.initWithInfo(allocator, &connection_info);
     defer connection.deinit();
 
+    // try connection.connection.setAttribute(.{ .ConnectionTimeout = 10 });
+
     // try connection.insert(OdbcTestType, "odbc_zig_test", &.{
     //     .{
     //         .id = 5,
@@ -144,16 +146,28 @@ pub fn main() !void {
 
     try cursor.close();
 
-    const table_columns = try cursor.columns("zig-test", "public", "odbc_zig_test");
-    defer allocator.free(table_columns);
+    const tables = try cursor.tables(null, null);
+    defer allocator.free(tables);
 
-    std.debug.print("Found {} columns\n", .{table_columns.len});
-    for (table_columns) |*column| {
-        std.debug.print("Column Name: {s}\n", .{column.column_name});
-        std.debug.print("Column Type: {s}\n", .{@tagName(column.sql_data_type)});
-        std.debug.print("Column Nullable? {s}\n", .{@tagName(column.nullable)});
-        std.debug.print("Decimal Digits: {}\n\n", .{column.decimal_digits});
-        column.deinit(allocator);
+    for (tables) |*table| {
+        std.debug.print("Catalog: {s}\n", .{table.catalog});
+        std.debug.print("Schema: {s}\n", .{table.schema});
+        std.debug.print("Name: {s}\n", .{table.name});
+        std.debug.print("Type: {s}\n", .{table.table_type});
+        std.debug.print("Remarks: {s}\n", .{table.remarks});
+        // std.debug.print("Catalog: {s}\n", .{table.catalog});
+        table.deinit(allocator);
     }
+    // const table_columns = try cursor.columns("zig-test", "public", "odbc_zig_test");
+    // defer allocator.free(table_columns);
+
+    // std.debug.print("Found {} columns\n", .{table_columns.len});
+    // for (table_columns) |*column| {
+    //     std.debug.print("Column Name: {s}\n", .{column.column_name});
+    //     std.debug.print("Column Type: {s}\n", .{@tagName(column.sql_data_type)});
+    //     std.debug.print("Column Nullable? {s}\n", .{@tagName(column.nullable)});
+    //     std.debug.print("Decimal Digits: {}\n\n", .{column.decimal_digits});
+    //     column.deinit(allocator);
+    // }
 
 }

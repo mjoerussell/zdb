@@ -34,3 +34,19 @@ pub const Column = struct {
         if (self.is_nullable) |in| allocator.free(in);
     }
 };
+
+pub const Table = struct {
+    catalog: ?[]const u8,
+    schema: ?[]const u8,
+    name: ?[]const u8,
+    table_type: ?[]const u8,
+    remarks: ?[]const u8,
+
+    pub fn deinit(self: *Table, allocator: *Allocator) void {
+        if (self.catalog) |cat| allocator.free(cat);
+        if (self.schema) |schema| allocator.free(schema);
+        if (self.name) |name| allocator.free(name);
+        if (self.table_type) |table_type| allocator.free(table_type);
+        if (self.remarks) |remarks| allocator.free(remarks);
+    }
+};

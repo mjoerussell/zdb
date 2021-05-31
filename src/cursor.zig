@@ -12,6 +12,7 @@ const ResultSet = @import("result_set.zig").ResultSet;
 
 const catalog_types = @import("catalog.zig");
 const Column = catalog_types.Column;
+const Table = catalog_types.Table;
 
 pub const Cursor = struct {
 
@@ -159,6 +160,17 @@ pub const Cursor = struct {
         defer result_set.deinit();
 
         try self.statement.columns(catalog_name, schema_name, table_name, null);
+
+        return try result_set.getAllRows();
+    }
+
+    pub fn tables(self: *Cursor, catalog_name: ?[]const u8, schema_name: ?[]const u8) ![]Table {
+        var result_set = try ResultSet(Table).init(self.allocator, self.statement);
+        defer result_set.deinit();
+
+        try self.statement.setAttribute(.{ .MetadataId = false });
+
+        try self.statement.tables(catalog_name, schema_name, null, null);
 
         return try result_set.getAllRows();
     }
