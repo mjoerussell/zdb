@@ -33,6 +33,23 @@ pub const Column = struct {
         if (self.column_def) |cd| allocator.free(cd);
         if (self.is_nullable) |in| allocator.free(in);
     }
+
+    pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("{s}{{\n", .{@typeName(@TypeOf(self))});
+        inline for (std.meta.fields(@TypeOf(self))) |field| {
+            const field_info = @typeInfo(field.field_type);
+            const target_type = if (field_info == .Optional) field_info.Optional.child else field.field_type;
+
+            switch (@typeInfo(target_type)) {
+                .Enum => try writer.print("  {s}: {s}\n", .{field.name, @tagName(@field(self, field.name))}),
+                else => {
+                    const format_string = comptime if (std.meta.trait.isZigString(target_type)) "  {s}: {s}\n" else "  {s}: {}\n";
+                    try writer.print(format_string, .{field.name, @field(self, field.name)});
+                }
+            }
+        }
+        try writer.writeAll("}");
+    }
 };
 
 pub const Table = struct {
@@ -48,6 +65,23 @@ pub const Table = struct {
         if (self.name) |name| allocator.free(name);
         if (self.table_type) |table_type| allocator.free(table_type);
         if (self.remarks) |remarks| allocator.free(remarks);
+    }
+
+    pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("{s}{{\n", .{@typeName(@TypeOf(self))});
+        inline for (std.meta.fields(@TypeOf(self))) |field| {
+            const field_info = @typeInfo(field.field_type);
+            const target_type = if (field_info == .Optional) field_info.Optional.child else field.field_type;
+
+            switch (@typeInfo(target_type)) {
+                .Enum => try writer.print("  {s}: {s}\n", .{field.name, @tagName(@field(self, field.name))}),
+                else => {
+                    const format_string = comptime if (std.meta.trait.isZigString(target_type)) "  {s}: {s}\n" else "  {s}: {}\n";
+                    try writer.print(format_string, .{field.name, @field(self, field.name)});
+                }
+            }
+        }
+        try writer.writeAll("}");
     }
 };
 
@@ -68,5 +102,22 @@ pub const TablePrivileges = struct {
         allocator.free(self.name);
         allocator.free(self.grantee);
         allocator.free(self.privilege);
+    }
+
+    pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("{s}{{\n", .{@typeName(@TypeOf(self))});
+        inline for (std.meta.fields(@TypeOf(self))) |field| {
+            const field_info = @typeInfo(field.field_type);
+            const target_type = if (field_info == .Optional) field_info.Optional.child else field.field_type;
+
+            switch (@typeInfo(target_type)) {
+                .Enum => try writer.print("  {s}: {s}\n", .{field.name, @tagName(@field(self, field.name))}),
+                else => {
+                    const format_string = comptime if (std.meta.trait.isZigString(target_type)) "  {s}: {s}\n" else "  {s}: {}\n";
+                    try writer.print(format_string, .{field.name, @field(self, field.name)});
+                }
+            }
+        }
+        try writer.writeAll("}");
     }
 };

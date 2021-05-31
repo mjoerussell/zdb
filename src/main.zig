@@ -156,12 +156,8 @@ pub fn main() !void {
     // const table_columns = try cursor.columns("zig-test", "public", "odbc_zig_test");
     // defer allocator.free(table_columns);
 
-    // std.debug.print("Found {} columns\n", .{table_columns.len});
     // for (table_columns) |*column| {
-    //     std.debug.print("Column Name: {s}\n", .{column.column_name});
-    //     std.debug.print("Column Type: {s}\n", .{@tagName(column.sql_data_type)});
-    //     std.debug.print("Column Nullable? {s}\n", .{@tagName(column.nullable)});
-    //     std.debug.print("Decimal Digits: {}\n\n", .{column.decimal_digits});
+    //     std.debug.print("{}\n", .{column});
     //     column.deinit(allocator);
     // }
 
