@@ -153,7 +153,7 @@ fn RowBindingResultSet(comptime Base: type) type {
         /// Initialze the ResultSet with the given batch_size. batch_size will control how many results
         /// are fetched every time `statement.fetch()` is called.
         pub fn init(allocator: *Allocator, statement: odbc.Statement) !Self {
-            const batch_size = 1000;
+            const batch_size = 10;
             var result: Self = undefined;
             result.statement = statement;
             result.allocator = allocator;
