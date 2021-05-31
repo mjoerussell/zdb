@@ -50,3 +50,23 @@ pub const Table = struct {
         if (self.remarks) |remarks| allocator.free(remarks);
     }
 };
+
+pub const TablePrivileges = struct {
+    category: ?[]const u8,
+    schema: ?[]const u8,
+    name: []const u8,
+    grantor: ?[]const u8,
+    grantee: []const u8,
+    privilege: []const u8,
+    is_grantable: ?[]const u8,
+
+    pub fn deinit(self: *TablePrivileges, allocator: *Allocator) void {
+        if (self.category) |category| allocator.free(category);
+        if (self.schema) |schema| allocator.free(schema);
+        if (self.grantor) |grantor| allocator.free(grantor);
+        if (self.is_grantable) |is_grantable| allocator.free(is_grantable);
+        allocator.free(self.name);
+        allocator.free(self.grantee);
+        allocator.free(self.privilege);
+    }
+};

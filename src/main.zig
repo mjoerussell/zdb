@@ -146,16 +146,11 @@ pub fn main() !void {
 
     try cursor.close();
 
-    const tables = try cursor.tables(null, null);
+    const tables = try cursor.tablePrivileges("zig-test", "public", "odbc_zig_test");
     defer allocator.free(tables);
 
     for (tables) |*table| {
-        std.debug.print("Catalog: {s}\n", .{table.catalog});
-        std.debug.print("Schema: {s}\n", .{table.schema});
-        std.debug.print("Name: {s}\n", .{table.name});
-        std.debug.print("Type: {s}\n", .{table.table_type});
-        std.debug.print("Remarks: {s}\n", .{table.remarks});
-        // std.debug.print("Catalog: {s}\n", .{table.catalog});
+        std.debug.print("{}\n", .{table});
         table.deinit(allocator);
     }
     // const table_columns = try cursor.columns("zig-test", "public", "odbc_zig_test");
