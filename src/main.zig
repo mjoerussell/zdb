@@ -62,62 +62,8 @@ pub fn main() !void {
     var connection = try DBConnection.initWithInfo(allocator, &connection_info);
     defer connection.deinit();
 
-    // try connection.connection.setAttribute(.{ .ConnectionTimeout = 10 });
-
-    // try connection.insert(OdbcTestType, "odbc_zig_test", &.{
-    //     .{
-    //         .id = 5,
-    //         .name = "Jeff",
-    //         .occupation = "Accountant",
-    //         .age = 45
-    //     }
-    // });
-
-    // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test WHERE occupation = ?");
-    // // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test");
-    // var prepared_statement = try connection.prepareStatement(
-    //     \\SELECT *  
-    //     \\FROM odbc_zig_test 
-    //     \\WHERE name = ? OR age < ?
-    // );
-    // defer prepared_statement.deinit();
-
-    // try prepared_statement.addParams(.{
-    //     .{1, "Reese"},
-    //     .{2, 30},
-    // });
-
-    // var result_set = try prepared_statement.execute(OdbcTestType);
-    // defer result_set.deinit();
-    
-    // var result_set = try connection.executeDirect(
-    //     OdbcTestType,
-    //     .{ "Reese", 30 },
-    //     \\SELECT *
-    //     \\FROM odbc_zig_test
-    //     \\WHERE name = ? OR age < ?
-    // );
-    // defer {
-    //     result_set.close() catch |_| {};
-    //     result_set.deinit();
-    // }
     var cursor = try connection.getCursor();
     defer cursor.deinit() catch |_| {};
-
-    // var result_set = try cursor.executeDirect(
-    //     OdbcTestType,
-    //     .{ "Reese", 30 },
-    //     \\SELECT *
-    //     \\FROM odbc_zig_test
-    //     \\WHERE name < ? OR age < ?
-    // );
-    // defer result_set.deinit();
-
-    // const query_results: []OdbcTestType = try result_set.getAllRows();
-    // defer {
-    //     for (query_results) |*q| q.deinit(allocator);
-    //     allocator.free(query_results);
-    // }
 
     try cursor.prepare(
         .{ "Reese", 30 },
@@ -153,12 +99,15 @@ pub fn main() !void {
         std.debug.print("{}\n", .{table});
         table.deinit(allocator);
     }
-    // const table_columns = try cursor.columns("zig-test", "public", "odbc_zig_test");
-    // defer allocator.free(table_columns);
 
-    // for (table_columns) |*column| {
-    //     std.debug.print("{}\n", .{column});
-    //     column.deinit(allocator);
-    // }
+    try cursor.close();
+
+    const table_columns = try cursor.columns("zig-test", "public", "odbc_zig_test");
+    defer allocator.free(table_columns);
+
+    for (table_columns) |*column| {
+        std.debug.print("{}\n", .{column});
+        column.deinit(allocator);
+    }
 
 }

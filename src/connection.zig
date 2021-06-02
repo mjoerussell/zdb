@@ -3,7 +3,6 @@ const Allocator = std.mem.Allocator;
 
 const odbc = @import("odbc");
 
-// const PreparedStatement = @import("prepared_statement.zig").PreparedStatement;
 const ResultSet = @import("result_set.zig").ResultSet;
 const FetchResult = @import("result_set.zig").FetchResult;
 
