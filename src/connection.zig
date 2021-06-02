@@ -3,45 +3,13 @@ const Allocator = std.mem.Allocator;
 
 const odbc = @import("odbc");
 
-const PreparedStatement = @import("prepared_statement.zig").PreparedStatement;
 const ResultSet = @import("result_set.zig").ResultSet;
 const FetchResult = @import("result_set.zig").FetchResult;
 
 const sql_parameter = @import("parameter.zig");
 const ParameterBucket = sql_parameter.ParameterBucket;
 
-// @todo Move this to a general "catalog data structs" file
-pub const Column = struct {
-    table_category: ?[]const u8,
-    table_schema: ?[]const u8,
-    table_name: []const u8,
-    column_name: []const u8,
-    data_type: u16,
-    type_name: []const u8,
-    column_size: ?u32,
-    buffer_length: ?u32,
-    decimal_digits: ?u16,
-    num_prec_radix: ?u16,
-    nullable: odbc.Types.Nullable,
-    remarks: ?[]const u8,
-    column_def: ?[]const u8,
-    sql_data_type: odbc.Types.SqlType,
-    sql_datetime_sub: ?u16,
-    char_octet_length: ?u32,
-    ordinal_position: u32,
-    is_nullable: ?[]const u8,
-
-    pub fn deinit(self: *Column, allocator: *Allocator) void {
-        if (self.table_category) |tc| allocator.free(tc);
-        if (self.table_schema) |ts| allocator.free(ts);
-        allocator.free(self.table_name);
-        allocator.free(self.column_name);
-        allocator.free(self.type_name);
-        if (self.remarks) |r| allocator.free(r);
-        if (self.column_def) |cd| allocator.free(cd);
-        if (self.is_nullable) |in| allocator.free(in);
-    }
-};
+const Cursor = @import("cursor.zig").Cursor;
 
 pub const ConnectionInfo = struct {
     pub const Config = struct {
@@ -214,130 +182,10 @@ pub const DBConnection = struct {
         self.environment.deinit() catch |_| {};
     }
 
-    pub fn insert(self: *DBConnection, comptime DataType: type, comptime table_name: []const u8, values: []const DataType) !void {
-        // @todo Maybe return num rows inserted?
-        comptime const num_fields = std.meta.fields(DataType).len;
-
-        const insert_statement = comptime blk: {
-            var statement: []const u8 = "INSERT INTO " ++ table_name ++ " (";
-            var statement_end: []const u8 = "VALUES (";
-            for (std.meta.fields(DataType)) |field, index| {
-                statement_end = statement_end ++ "?";
-                var column_name: []const u8 = &[_]u8{}; 
-                for (field.name) |c| {
-                    column_name = column_name ++ [_]u8{std.ascii.toLower(c)};
-                }
-                statement = statement ++ column_name;
-                if (index < num_fields - 1) {
-                    statement = statement ++ ", ";
-                    statement_end = statement_end ++ ", ";
-                }
-            }
-
-            statement = statement ++ ") " ++ statement_end ++ ")";
-            break :blk statement;
-        };
-
-        var prepared_statement = try self.prepareStatement(insert_statement);
-        defer prepared_statement.deinit();
-
-        for (values) |value| {
-            inline for (std.meta.fields(DataType)) |field, index| {
-                try prepared_statement.addParam(index + 1, @field(value, field.name));
-            }
-
-            prepared_statement.execute() catch |err| {
-                var err_buf: [@sizeOf(odbc.Error.SqlState) * 3]u8 = undefined;
-                var fba = std.heap.FixedBufferAllocator.init(err_buf[0..]);
-                const errors = try prepared_statement.statement.getErrors(&fba.allocator);
-                for (errors) |e| {
-                    std.debug.print("Insert Error: {s}\n", .{@tagName(e)});
-                }
-            };
-        }
+    pub fn getCursor(self: *DBConnection) !Cursor {
+        return try Cursor.init(self.allocator, self.connection);
     }
 
-    pub fn executeDirect(self: *DBConnection, comptime ResultType: type, params: anytype, sql_statement: []const u8) !ResultSet(ResultType) {
-        var num_params: usize = 0;
-        for (sql_statement) |c| {
-            if (c == '?') num_params += 1;
-        }
-
-        if (num_params != params.len) return error.InvalidNumParams;
-
-        var statement = try self.getStatement();
-        errdefer statement.deinit() catch |_| {};
-
-        var parameter_bucket = try ParameterBucket.init(self.allocator, num_params);
-        defer parameter_bucket.deinit();
-
-        inline for (params) |param, index| {
-            const stored_param = try parameter_bucket.addParameter(index, param);
-            const sql_param = sql_parameter.default(param);
-            try statement.bindParameter(
-                @intCast(u16, index + 1), 
-                .Input, 
-                sql_param.c_type, 
-                sql_param.sql_type, 
-                stored_param.param, 
-                sql_param.precision, 
-                stored_param.indicator,
-            );
-        }
-
-        _ = try statement.executeDirect(sql_statement);
-
-        return try ResultSet(ResultType).init(self.allocator, statement);
-    }
-
-    /// Create a prepared statement from the specified SQL statement. 
-    pub fn prepareStatement(self: *DBConnection, sql_statement: []const u8) !PreparedStatement {
-        var num_params: usize = 0;
-        for (sql_statement) |c| {
-            if (c == '?') num_params += 1;
-        }
-
-        var statement = try self.getStatement();
-        errdefer statement.deinit() catch |_| {};
-
-        statement.prepare(sql_statement) catch |prep_err| {
-            const diagnostic_records = try statement.getDiagnosticRecords();
-            defer {
-                for (diagnostic_records) |*r| r.deinit(self.allocator);
-                self.allocator.free(diagnostic_records);
-            }
-            for (diagnostic_records) |*record| {
-                const sql_state = odbc.Error.OdbcError.fromString(record.sql_state[0..]);
-                // @todo These are good places to put error logging once logging is implemented
-                if (sql_state) |state| {
-                    std.debug.print("Fetch Error: {s} ({s})\n", .{record.sql_state, @tagName(state)});
-                } else |_| {
-                    std.debug.print("Fetch Error: {s} (unknown sql_state)\n", .{record.sql_state});
-                }
-
-                std.debug.print("Error Message: {s}\n", .{record.error_message});
-            }
-        };
-
-        return try PreparedStatement.init(self.allocator, statement, num_params);
-    }
-
-    /// Get information about the columns of a given table.
-    pub fn getColumns(self: *DBConnection, catalog_name: []const u8, schema_name: []const u8, table_name: []const u8) ![]Column {
-        var statement = try self.getStatement();
-        defer statement.deinit() catch |_| {};
-
-        var result_set = try ResultSet(Column).init(self.allocator, statement);
-        defer result_set.deinit();
-
-        try statement.columns(catalog_name, schema_name, table_name, null);
-
-        return try result_set.getAllRows();
-    }
-
-    pub fn getStatement(self: *DBConnection) !odbc.Statement {
-        return try odbc.Statement.init(&self.connection, self.allocator);
-    }
 };
 
 test "ConnectionInfo" {

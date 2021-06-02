@@ -62,45 +62,20 @@ pub fn main() !void {
     var connection = try DBConnection.initWithInfo(allocator, &connection_info);
     defer connection.deinit();
 
-    // try connection.insert(OdbcTestType, "odbc_zig_test", &.{
-    //     .{
-    //         .id = 5,
-    //         .name = "Jeff",
-    //         .occupation = "Accountant",
-    //         .age = 45
-    //     }
-    // });
+    var cursor = try connection.getCursor();
+    defer cursor.deinit() catch |_| {};
 
-    // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test WHERE occupation = ?");
-    // // var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test");
-    // var prepared_statement = try connection.prepareStatement(
-    //     \\SELECT *  
-    //     \\FROM odbc_zig_test 
-    //     \\WHERE name = ? OR age < ?
-    // );
-    // defer prepared_statement.deinit();
-
-    // try prepared_statement.addParams(.{
-    //     .{1, "Reese"},
-    //     .{2, 30},
-    // });
-
-    // var result_set = try prepared_statement.execute(OdbcTestType);
-    // defer result_set.deinit();
-    
-    var result_set = try connection.executeDirect(
-        OdbcTestType,
+    try cursor.prepare(
         .{ "Reese", 30 },
         \\SELECT *
         \\FROM odbc_zig_test
-        \\WHERE name = ? OR age < ?
+        \\WHERE name < ? OR age < ?
     );
-    defer {
-        result_set.close() catch |_| {};
-        result_set.deinit();
-    }
 
-    const query_results: []OdbcTestType = try result_set.getAllRows();
+    var result_set = try cursor.execute(OdbcTestType);
+    defer result_set.deinit();
+
+    const query_results = try result_set.getAllRows();
     defer {
         for (query_results) |*q| q.deinit(allocator);
         allocator.free(query_results);
@@ -115,16 +90,24 @@ pub fn main() !void {
         std.debug.print("Age: {}\n\n", .{result.age});
     }
 
-    // const table_columns = try connection.getColumns("zig-test", "public", "odbc_zig_test");
-    // defer allocator.free(table_columns);
+    try cursor.close();
 
-    // std.debug.print("Found {} columns\n", .{table_columns.len});
-    // for (table_columns) |*column| {
-    //     std.debug.print("Column Name: {s}\n", .{column.column_name});
-    //     std.debug.print("Column Type: {s}\n", .{@tagName(column.sql_data_type)});
-    //     std.debug.print("Column Nullable? {s}\n", .{@tagName(column.nullable)});
-    //     std.debug.print("Decimal Digits: {}\n\n", .{column.decimal_digits});
-    //     column.deinit(allocator);
-    // }
+    const tables = try cursor.tablePrivileges("zig-test", "public", "odbc_zig_test");
+    defer allocator.free(tables);
+
+    for (tables) |*table| {
+        std.debug.print("{}\n", .{table});
+        table.deinit(allocator);
+    }
+
+    try cursor.close();
+
+    const table_columns = try cursor.columns("zig-test", "public", "odbc_zig_test");
+    defer allocator.free(table_columns);
+
+    for (table_columns) |*column| {
+        std.debug.print("{}\n", .{column});
+        column.deinit(allocator);
+    }
 
 }

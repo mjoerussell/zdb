@@ -11,14 +11,31 @@ To use zdb, follow these steps:
 
 ### 1. Clone
 
-Include this repo in your project path. Best way to do this is by running `git submodule add https://github.com/mjoerussell/zdb --recurse-submodules`.
+Include this repo in your project path. Best way to do this is by running
+
+```
+$ git submodule add https://github.com/mjoerussell/zdb --recurse-submodules
+$ cd zdb
+$ git submodule update --init --recursive
+```
+
+After this you should have **zdb** and also it's dependencies fully pulled into your project.
 
 ### 2. (a) Windows
 
 Add this to your project's `build.zig`:
 
 ```zig
-exe.addPackagePath("zdb", "zdb/src/zdb.zig");
+exe.addPackage(Pkg{
+    .name = "zdb",
+    .path = "zdb/src/zdb.zig",
+    .dependencies = [_]Pkg{
+        .{
+            .name = "odbc",
+            .path = "zdb/zig-odbc/src/lib.zig",
+        }
+    }
+});
 exe.linkLibC();
 exe.linkSystemLibrary("odbc32");
 ```
@@ -30,7 +47,16 @@ Install [`unixODBC`](unixodbc.org) if you have not already.
 Add this to your project's `build.zig`:
 
 ```zig
-exe.addPackagePath("zdb", "zdb/src/zdb.zig");
+exe.addPackage(Pkg{
+    .name = "zdb",
+    .path = "zdb/src/zdb.zig",
+    .dependencies = [_]Pkg{
+        .{
+            .name = "odbc",
+            .path = "zdb/zig-odbc/src/lib.zig",
+        }
+    }
+});
 exe.linkLibC();
 exe.addIncludeDir("/usr/local/include");
 exe.addIncludeDir("/usr/local/lib");
@@ -85,8 +111,10 @@ const OdbcTestType = struct {
 
 fn main() {
     // ... initialize connection
+    var cursor = try connection.getCursor();
+    defer cursor.deinit();
 
-    try connection.insert(OdbcTestType, "odbc_test_zig", &.{
+    try cursor.insert(OdbcTestType, "odbc_test_zig", &.{
         .{
             .id = 1,
             .name = "John",
@@ -103,18 +131,10 @@ fn main() {
 }
 ```
 
-### Prepared Statements
+### Execute Statements Directly
 
-Once you have a connection, you can create prepared statements and add parameters to them.
-
-```zig
-var prepared_statement = try connection.prepareStatement("SELECT * FROM odbc_zig_test WHERE age >= ?");
-defer prepared_statement.deinit();
-
-try prepared_statement.addParam(1, 30);
-```
-
-Results can then be fetched from the statement by providing a target type and calling `fetch()`.
+If you only want to execute a statement once, the fastest way to do that is to use `executeDirect`. Once you have
+a cursor you can use `executeDirect` like this:
 
 ```zig
 const OdbcTestType = struct {
@@ -124,7 +144,29 @@ const OdbcTestType = struct {
     age: u32,
 };
 
-var result_set = try prepared_statement.fetch(OdbcTestType);
+var result_set = try cursor.executeDirect(
+    OdbcTestType,
+    .{ 20 },
+    "SELECT * FROM odbc_zig_test WHERE age >= ?"
+);
+defer result_set.deinit();
+```
+
+### Prepared Statements
+
+Once you have a cursor, you can create prepared statements and add parameters to them.
+
+```zig
+try cursor.prepare(
+    .{ 20 },
+    "SELECT * FROM odbc_zig_test WHERE age >= ?"
+);
+```
+
+Results can then be fetched from the statement by providing a target type and calling `fetch()`.
+
+```zig
+var result_set = try cursor.execute(OdbcTestType);
 defer result_set.deinit();
 
 std.debug.print("Rows fetched: {}\n", .{result_set.rows_fetched});
@@ -136,6 +178,45 @@ while (try result_set.next()) |result| {
     std.debug.print("Age: {}\n", .{result.age});
 }
 ```
+
+### Custom Row Mapping
+
+Sometimes you want to use structs that don't directly correspond with a table or result set from a SQL query. Currently, you can do
+that with a `fromRow` function. To get started, define a function on your target struct in this way:
+
+```zig
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const zdb = @import("zdb");
+const Row = zdb.Row;
+
+const Target = struct {
+    fieldA: u32,
+    fieldB: struct {
+        inner: []const u8,
+    },
+    fieldC: []const u8,
+
+    // Column-wise binding will be used if the struct has a function with this signature on it
+    pub fn fromRow(row: *Row, allocator: *Allocator) !Target {
+        var t: Target = undefined;
+
+        // Get data by calling row.get with the desired return type and the column name
+        t.fieldA = row.get(u32, "a") catch |_| 0;
+        t.fieldB.inner = try row.get([]const u8, "column_b");
+
+        const c = row.get(f32, "c") orelse 1.0;
+        t.fieldC = try std.fmt.allocPrint(allocator, "Column C is {d:.2}", .{c});
+
+        return t;
+    }
+}
+```
+
+The Cursor functions (`executeDirect`, `prepare`, etc) and the ResultSet functions (`next`, `getAllRows`) work the same whether your target
+struct is using default field-based binding or `fromRow` bindings. So when you're fetching data, you shouldn't have to worry about which
+type ends up being used.
 
 ### ODBC Fallthrough
 
