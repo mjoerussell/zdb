@@ -3,7 +3,8 @@ const Allocator = std.mem.Allocator;
 
 const odbc = @import("odbc");
 
-const sliceToValue = @import("util.zig").sliceToValue;
+const util = @import("util.zig");
+const sliceToValue = util.sliceToValue;
 
 /// Given a struct, generate a new struct that can be used for ODBC row-wise binding. The conversion goes
 /// roughly like this;
@@ -208,12 +209,15 @@ fn RowBindingResultSet(comptime Base: type) type {
                     self.current_row = 0;
                 }
 
-                while (self.current_row < self.rows_fetched and self.current_row < self.rows.len) : (self.current_row += 1) {
+                item_loop: while (self.current_row < self.rows_fetched and self.current_row < self.rows.len) : (self.current_row += 1) {
                     switch (self.row_status[self.current_row]) {
                         .Success, .SuccessWithInfo, .Error => {
                             const item_row = self.rows[self.current_row];
                             self.current_row += 1;
-                            return try FetchResult(Base).toTarget(self.allocator, item_row);
+                            return FetchResult(Base).toTarget(self.allocator, item_row) catch |err| switch (err) {
+                                error.InvalidNullValue => continue :item_loop,
+                                else => return err
+                            };
                         },
                         else => {}
                     }
@@ -225,7 +229,7 @@ fn RowBindingResultSet(comptime Base: type) type {
         /// Bind each column of the result set to their associated row buffers.
         /// After this function is called + `statement.fetch()`, you can retrieve
         /// result data from this struct.
-        pub fn bindColumns(self: *Self) !void {
+        fn bindColumns(self: *Self) !void {
             @setEvalBranchQuota(1_000_000);
             comptime var column_number: u16 = 1;
 
