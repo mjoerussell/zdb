@@ -63,7 +63,7 @@ pub fn main() !void {
     defer connection.deinit();
 
     var cursor = try connection.getCursor();
-    defer cursor.deinit() catch |_| {};
+    defer cursor.deinit() catch {};
 
     try cursor.prepare(
         .{ "Reese", 30 },

@@ -68,8 +68,10 @@ pub fn FetchResult(comptime Target: type) type {
 
             ResultInfo.Struct.fields = result_fields[0..];
 
+            const PrivateRowType = @Type(ResultInfo);
+
             return struct {
-                pub const RowType = @Type(ResultInfo);
+                pub const RowType = PrivateRowType;
 
                 pub fn toTarget(allocator: *Allocator, row: RowType) !Target {
                     var item: Target = undefined;
@@ -430,7 +432,7 @@ pub const BindType = enum(u1) {
 };
 
 pub fn ResultSet(comptime Base: type) type {
-    comptime const bind_type: BindType = if (@hasDecl(Base, "fromRow")) .column else .row; 
+    const bind_type: BindType = comptime if (@hasDecl(Base, "fromRow")) .column else .row; 
     return switch (bind_type) {
         .row => RowBindingResultSet(Base),
         .column => ColumnBindingResultSet(Base),

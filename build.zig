@@ -23,6 +23,7 @@ pub fn build(b: *std.build.Builder) void {
         exe.addIncludeDir("/usr/local/lib");
     }
     
+    // exe.linkSystemLibrary("c");
     exe.linkSystemLibrary(odbc_library_name);
 
     const run_cmd = exe.run();

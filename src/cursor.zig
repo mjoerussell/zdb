@@ -103,7 +103,7 @@ pub const Cursor = struct {
 
     pub fn insert(self: *Cursor, comptime DataType: type, comptime table_name: []const u8, values: []const DataType) !usize {
         // @todo Try using arrays of parameters for bulk ops
-        comptime const num_fields = std.meta.fields(DataType).len;
+        const num_fields = comptime std.meta.fields(DataType).len;
 
         const insert_statement = comptime blk: {
             var statement: []const u8 = "INSERT INTO " ++ table_name ++ " (";
@@ -225,7 +225,7 @@ pub const Cursor = struct {
     }
 
     pub fn getErrors(self: *Cursor) []odbc.Error.DiagnosticRecord {
-        return self.statement.getDiagnosticRecords() catch |_| return &[_]odbc.Error.DiagnosticRecord{};
+        return self.statement.getDiagnosticRecords() catch return &[_]odbc.Error.DiagnosticRecord{};
     }
 
 

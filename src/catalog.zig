@@ -35,6 +35,8 @@ pub const Column = struct {
     }
 
     pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
         try writer.print("{s}{{\n", .{@typeName(@TypeOf(self))});
         inline for (std.meta.fields(@TypeOf(self))) |field| {
             const field_info = @typeInfo(field.field_type);
@@ -68,6 +70,8 @@ pub const Table = struct {
     }
 
     pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
         try writer.print("{s}{{\n", .{@typeName(@TypeOf(self))});
         inline for (std.meta.fields(@TypeOf(self))) |field| {
             const field_info = @typeInfo(field.field_type);
@@ -105,6 +109,8 @@ pub const TablePrivileges = struct {
     }
 
     pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
         try writer.print("{s}{{\n", .{@typeName(@TypeOf(self))});
         inline for (std.meta.fields(@TypeOf(self))) |field| {
             const field_info = @typeInfo(field.field_type);
