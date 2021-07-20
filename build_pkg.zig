@@ -4,7 +4,6 @@ const LibExeObjStep = std.build.LibExeObjStep;
 const Pkg = std.build.Pkg;
 
 pub fn buildPkg(exe: *LibExeObjStep, package_name: []const u8) void {
-    // exe.addPackagePath("odbc", "zig-odbc/src/lib.zig");
     exe.linkLibC();
 
     const odbc_library_name = if (builtin.os.tag == .windows) "odbc32" else "odbc";
