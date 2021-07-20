@@ -40,8 +40,6 @@ exe.linkLibC();
 exe.linkSystemLibrary("odbc32");
 ```
 
-**Important**: Since Zig 0.8, this project must be built with the option `-Dtarget=native-native-msvc`.
-
 ### 2. (b) MacOS
 
 Install [`unixODBC`](unixodbc.org) if you have not already.
