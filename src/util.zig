@@ -12,7 +12,8 @@ pub fn EraseComptime(comptime T: type) type {
 
 /// Helper function to convert a slice of bytes to a value of type `T`.
 /// Internally calls `std.mem.bytesToValue`.
-pub fn sliceToValue(comptime T: type, slice: []u8) callconv(.Inline) T {
+pub inline fn sliceToValue(comptime T: type, slice: []u8) T {
+    std.debug.assert(slice.len >= @sizeOf(T));
     const ptr = @ptrCast(*const [@sizeOf(T)]u8, slice[0..@sizeOf(T)]);
     return std.mem.bytesToValue(T, ptr);
 }

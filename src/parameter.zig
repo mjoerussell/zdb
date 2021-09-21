@@ -63,6 +63,8 @@ pub const ParameterBucket = struct {
         self.allocator.free(self.indicators);
     }
 
+    /// Insert a parameter into the bucker at the given index. Old parameter data at the
+    /// old index won't be overwritten, but old indicator values will be overwritten.
     pub fn addParameter(self: *ParameterBucket, index: usize, param: anytype) !Param {
         const ParamType = EraseComptime(@TypeOf(param));
 
@@ -106,5 +108,33 @@ test "SqlParameter string" {
     try std.testing.expectEqual(*const [11:0] u8, @TypeOf(param.value));
     try std.testing.expectEqual(CType.Char, param.c_type);
     try std.testing.expectEqual(SqlType.Varchar, param.sql_type);
+}
+
+test "add parameter to ParameterBucket" {
+    const allocator = std.testing.allocator;
+
+    var bucket = try ParameterBucket.init(allocator, 5);
+    defer bucket.deinit();
+
+    var param_value: u32 = 10;
+
+    const param = try bucket.addParameter(0, param_value);
+
+    const param_data = @ptrCast([*]u8, param.param)[0..@intCast(usize, param.indicator.*)];
+    try std.testing.expectEqualSlices(u8, std.mem.toBytes(param_value)[0..], param_data);
+}
+
+test "add string parameter to ParameterBucket" {
+    const allocator = std.testing.allocator;
+
+    var bucket = try ParameterBucket.init(allocator, 5);
+    defer bucket.deinit();
+
+    var param_value = "some string value";
+
+    const param = try bucket.addParameter(0, param_value);
+
+    const param_data = @ptrCast([*]u8, param.param)[0..@intCast(usize, param.indicator.*)];
+    try std.testing.expectEqualStrings(param_value, param_data);
 }
 
