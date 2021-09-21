@@ -59,10 +59,13 @@ pub fn main() !void {
     });
     defer connection_info.deinit();
 
-    var connection = try DBConnection.initWithInfo(allocator, &connection_info);
+    const connection_string = try connection_info.toConnectionString(allocator);
+    defer allocator.free(connection_string);
+
+    var connection = try DBConnection.initWithConnectionString(connection_string);
     defer connection.deinit();
 
-    var cursor = try connection.getCursor();
+    var cursor = try connection.getCursor(allocator);
     defer cursor.deinit() catch {};
 
     try cursor.prepare(

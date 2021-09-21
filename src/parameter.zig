@@ -85,22 +85,26 @@ pub const ParameterBucket = struct {
 };
 
 test "SqlParameter defaults" {
+    const SqlType = odbc.Types.SqlType;
+    const CType = odbc.Types.CType;
     const a = default(10);
 
-    std.testing.expect(a.precision == null);
-    std.testing.expect(a.value == 10);
-    std.testing.expect(@TypeOf(a.value) == i64);
-    std.testing.expect(a.c_type == .SBigInt);
-    std.testing.expect(a.sql_type == .Integer);
+    try std.testing.expect(a.precision == null);
+    try std.testing.expect(a.value == 10);
+    try std.testing.expectEqual(i64, @TypeOf(a.value));
+    try std.testing.expectEqual(CType.SBigInt, a.c_type);
+    try std.testing.expectEqual(SqlType.BigInt, a.sql_type);
 }
 
 test "SqlParameter string" {
+    const SqlType = odbc.Types.SqlType;
+    const CType = odbc.Types.CType;
     const param = default("some string");
 
-    std.testing.expect(param.precision == null);
-    std.testing.expect(param.value == "some string");
-    std.testing.expect(@TypeOf(param.value) == [11:0] u8);
-    std.testing.expect(param.c_type == .Char);
-    std.testing.expect(param.sql_type == .Char);
+    try std.testing.expect(param.precision == null);
+    try std.testing.expectEqualStrings("some string", param.value);
+    try std.testing.expectEqual(*const [11:0] u8, @TypeOf(param.value));
+    try std.testing.expectEqual(CType.Char, param.c_type);
+    try std.testing.expectEqual(SqlType.Varchar, param.sql_type);
 }
 
