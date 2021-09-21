@@ -145,12 +145,12 @@ pub const DBConnection = struct {
         var result: DBConnection = undefined;
         result.allocator = allocator;
         
-        result.environment = odbc.Environment.init(allocator) catch return error.EnvironmentError;
+        result.environment = odbc.Environment.init() catch return error.EnvironmentError;
         errdefer result.environment.deinit() catch {};
         
         result.environment.setOdbcVersion(.Odbc3) catch return error.EnvironmentError;
         
-        result.connection = odbc.Connection.init(allocator, &result.environment) catch return error.ConnectionError;
+        result.connection = odbc.Connection.init(&result.environment) catch return error.ConnectionError;
         errdefer result.connection.deinit() catch {};
 
         try result.connection.connect(server_name, username, password);
@@ -162,12 +162,12 @@ pub const DBConnection = struct {
         var result: DBConnection = undefined;
         result.allocator = allocator;
         
-        result.environment = odbc.Environment.init(allocator) catch return error.EnvironmentError;
+        result.environment = odbc.Environment.init() catch return error.EnvironmentError;
         errdefer result.environment.deinit() catch {};
         
         result.environment.setOdbcVersion(.Odbc3) catch return error.EnvironmentError;
         
-        result.connection = odbc.Connection.init(allocator, &result.environment) catch return error.ConnectionError;
+        result.connection = odbc.Connection.init(&result.environment) catch return error.ConnectionError;
         errdefer result.connection.deinit() catch {};
 
         try result.connection.connectExtended(connection_string, .NoPrompt);

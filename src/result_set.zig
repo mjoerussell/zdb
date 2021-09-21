@@ -385,10 +385,10 @@ fn ColumnBindingResultSet(comptime Base: type) type {
             result.row = try Row.init(allocator, num_columns);
 
             for (result.columns) |*column, column_index| {
-                column.sql_type = (try result.statement.getColumnAttribute(column_index + 1, .Type)).Type;
-                column.name = (try result.statement.getColumnAttribute(column_index + 1, .BaseColumnName)).BaseColumnName;
+                column.sql_type = (try result.statement.getColumnAttribute(allocator, column_index + 1, .Type)).Type;
+                column.name = (try result.statement.getColumnAttribute(allocator, column_index + 1, .BaseColumnName)).BaseColumnName;
 
-                column.octet_length = @intCast(usize, (try result.statement.getColumnAttribute(column_index + 1, .OctetLength)).OctetLength);
+                column.octet_length = @intCast(usize, (try result.statement.getColumnAttribute(allocator, column_index + 1, .OctetLength)).OctetLength);
 
                 column.data = try allocator.alloc(u8, row_count * column.octet_length);
                 column.indicator = try allocator.alloc(c_longlong, row_count);
