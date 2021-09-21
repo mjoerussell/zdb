@@ -20,14 +20,12 @@ pub const ConnectionInfo = struct {
     };
 
     attributes: std.StringHashMap([]const u8),
-    arena: std.heap.ArenaAllocator,
 
     /// Initialize a blank `ConnectionInfo` struct with an initialized `attributes` hash map
     /// and arena allocator.
     pub fn init(allocator: *Allocator) ConnectionInfo {
         return .{ 
             .attributes = std.StringHashMap([]const u8).init(allocator),
-            .arena = std.heap.ArenaAllocator.init(allocator),
         };
     }
 
@@ -44,7 +42,6 @@ pub const ConnectionInfo = struct {
 
     pub fn deinit(self: *ConnectionInfo) void {
         self.attributes.deinit();
-        self.arena.deinit();
     }
 
     pub fn setAttribute(self: *ConnectionInfo, attr_name: []const u8, attr_value: []const u8) !void {
@@ -87,8 +84,8 @@ pub const ConnectionInfo = struct {
         return self.getAttribute("DSN");
     }
 
-    pub fn toConnectionString(self: *ConnectionInfo) ![]const u8 {
-        var string_builder = std.ArrayList(u8).init(&self.arena.allocator);
+    pub fn toConnectionString(self: *ConnectionInfo, allocator: *Allocator) ![]const u8 {
+        var string_builder = std.ArrayList(u8).init(allocator);
         errdefer string_builder.deinit();
         
         _ = try string_builder.writer().write("ODBC;");
@@ -139,18 +136,16 @@ pub const ConnectionInfo = struct {
 pub const DBConnection = struct {
     environment: odbc.Environment,
     connection: odbc.Connection,
-    allocator: *Allocator,
 
-    pub fn init(allocator: *Allocator, server_name: []const u8, username: []const u8, password: []const u8) !DBConnection {
+    pub fn init(server_name: []const u8, username: []const u8, password: []const u8) !DBConnection {
         var result: DBConnection = undefined;
-        result.allocator = allocator;
         
-        result.environment = odbc.Environment.init(allocator) catch return error.EnvironmentError;
+        result.environment = odbc.Environment.init() catch return error.EnvironmentError;
         errdefer result.environment.deinit() catch {};
         
         result.environment.setOdbcVersion(.Odbc3) catch return error.EnvironmentError;
         
-        result.connection = odbc.Connection.init(allocator, &result.environment) catch return error.ConnectionError;
+        result.connection = odbc.Connection.init(&result.environment) catch return error.ConnectionError;
         errdefer result.connection.deinit() catch {};
 
         try result.connection.connect(server_name, username, password);
@@ -158,16 +153,15 @@ pub const DBConnection = struct {
         return result;
     }
 
-    pub fn initWithConnectionString(allocator: *Allocator, connection_string: []const u8) !DBConnection {
+    pub fn initWithConnectionString(connection_string: []const u8) !DBConnection {
         var result: DBConnection = undefined;
-        result.allocator = allocator;
         
-        result.environment = odbc.Environment.init(allocator) catch return error.EnvironmentError;
+        result.environment = odbc.Environment.init() catch return error.EnvironmentError;
         errdefer result.environment.deinit() catch {};
         
         result.environment.setOdbcVersion(.Odbc3) catch return error.EnvironmentError;
         
-        result.connection = odbc.Connection.init(allocator, &result.environment) catch return error.ConnectionError;
+        result.connection = odbc.Connection.init(&result.environment) catch return error.ConnectionError;
         errdefer result.connection.deinit() catch {};
 
         try result.connection.connectExtended(connection_string, .NoPrompt);
@@ -175,17 +169,13 @@ pub const DBConnection = struct {
         return result;
     }
 
-    pub fn initWithInfo(allocator: *Allocator, connection_info: *ConnectionInfo) !DBConnection {
-        return try DBConnection.initWithConnectionString(allocator, try connection_info.toConnectionString());
-    }
-
     pub fn deinit(self: *DBConnection) void {
         self.connection.deinit() catch {};
         self.environment.deinit() catch {};
     }
 
-    pub fn getCursor(self: *DBConnection) !Cursor {
-        return try Cursor.init(self.allocator, self.connection);
+    pub fn getCursor(self: *DBConnection, allocator: *Allocator) !Cursor {
+        return try Cursor.init(allocator, self.connection);
     }
 
 };
@@ -202,14 +192,15 @@ test "ConnectionInfo" {
     try connection_info.setPassword("Password");
     try connection_info.setAttribute("RandomAttr", "Random Value");
 
-    const connection_string = try connection_info.toConnectionString();
+    const connection_string = try connection_info.toConnectionString(allocator);
+    defer allocator.free(connection_string);
 
     var derived_conn_info = try ConnectionInfo.fromConnectionString(allocator, connection_string);
     defer derived_conn_info.deinit();
 
-    std.testing.expectEqualStrings("A Driver", derived_conn_info.getDriver().?);
-    std.testing.expectEqualStrings("Some DSN Value", derived_conn_info.getDSN().?);
-    std.testing.expectEqualStrings("User", derived_conn_info.getUsername().?);
-    std.testing.expectEqualStrings("Password", derived_conn_info.getPassword().?);
-    std.testing.expectEqualStrings("Random Value", derived_conn_info.getAttribute("RandomAttr").?);
+    try std.testing.expectEqualStrings("A Driver", derived_conn_info.getDriver().?);
+    try std.testing.expectEqualStrings("Some DSN Value", derived_conn_info.getDSN().?);
+    try std.testing.expectEqualStrings("User", derived_conn_info.getUsername().?);
+    try std.testing.expectEqualStrings("Password", derived_conn_info.getPassword().?);
+    try std.testing.expectEqualStrings("Random Value", derived_conn_info.getAttribute("RandomAttr").?);
 }

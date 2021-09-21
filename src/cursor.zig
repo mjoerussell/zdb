@@ -27,7 +27,7 @@ pub const Cursor = struct {
         return Cursor{
             .allocator = allocator,
             .connection = connection,
-            .statement = try Statement.init(connection, allocator),
+            .statement = try Statement.init(connection),
         };
     }
 
