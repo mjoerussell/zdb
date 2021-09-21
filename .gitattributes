@@ -1,0 +1,3 @@
+*           text=false
+
+*.zig       text
