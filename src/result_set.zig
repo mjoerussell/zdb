@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const odbc = @import("odbc");
+const RowStatus = odbc.Types.StatementAttributeValue.RowStatus;
 
 const util = @import("util.zig");
 const sliceToValue = util.sliceToValue;
@@ -85,7 +86,6 @@ pub fn FetchResult(comptime Target: type) type {
                             // Handle null data. For Optional types, set the field to null. For non-optional types with
                             // a default value given, set the field to the default value. For all others, return
                             // an error
-                            // @todo Not sure if an error is the most appropriate here, but it works for now
                             if (field_type_info == .Optional) {
                                 @field(item, field.name) = null;
                             } else if (field.default_value) |default| {
@@ -130,17 +130,18 @@ pub fn FetchResult(comptime Target: type) type {
     }
 }
 
-/// RowBindingResultSet handles fetching and binding data from query executions
-/// when the bind_type has been set to .row. In order to bind data this way,
-/// `Base` must have fields that correspond with the columns in the result set.
-/// The columns will be mapped to the fields in-order, regardless of what the fields
-/// are named.
+/// `RowBindingResultSet` is the default type of result set. It is used as long as `Base` does not have
+/// a function named `fromRow` defined on it.
+///
+/// `RowBindingResultSet` creates a result type from `Base` that can be mapped directly to the row-binding
+/// results produced by the DB. This type includes the same fields as `Base` (their types possibly converted to
+/// DB-friendly ones), plus indicator fields for each which inidicate the length and/or status of the fetched
+/// data.
 fn RowBindingResultSet(comptime Base: type) type {
     return struct {
         const Self = @This();
 
         pub const RowType = FetchResult(Base).RowType;
-        const RowStatus = odbc.Types.StatementAttributeValue.RowStatus;
 
         rows: []RowType,
         row_status: []RowStatus,
@@ -153,10 +154,9 @@ fn RowBindingResultSet(comptime Base: type) type {
         allocator: *Allocator,
         statement: odbc.Statement,
 
-        /// Initialze the ResultSet with the given batch_size. batch_size will control how many results
+        /// Initialze the ResultSet with the given `row_count`. `row_count` will control how many results
         /// are fetched every time `statement.fetch()` is called.
-        pub fn init(allocator: *Allocator, statement: odbc.Statement) !Self {
-            const batch_size = 10;
+        pub fn init(allocator: *Allocator, statement: odbc.Statement, row_count: usize) !Self {
             var result: Self = undefined;
             result.statement = statement;
             result.allocator = allocator;
@@ -164,11 +164,11 @@ fn RowBindingResultSet(comptime Base: type) type {
             result.current_row = 0;
             result.is_first = true;
 
-            result.rows = try allocator.alloc(RowType, batch_size);
-            result.row_status = try allocator.alloc(RowStatus, batch_size);
+            result.rows = try allocator.alloc(RowType, row_count);
+            result.row_status = try allocator.alloc(RowStatus, row_count);
             
             try result.statement.setAttribute(.{ .RowBindType = @sizeOf(RowType) });
-            try result.statement.setAttribute(.{ .RowArraySize = batch_size });
+            try result.statement.setAttribute(.{ .RowArraySize = row_count });
             try result.statement.setAttribute(.{ .RowStatusPointer = result.row_status });
 
             try result.bindColumns();
@@ -266,7 +266,8 @@ fn RowBindingResultSet(comptime Base: type) type {
                     column_number, 
                     c_type, 
                     value_ptr,
-                    &@field(self.rows[0], field.name ++ "_len_or_ind")
+                    @ptrCast([*]c_longlong, &@field(self.rows[0], field.name ++ "_len_or_ind")),
+                    null
                 );
                 
                 column_number += 1;
@@ -275,71 +276,39 @@ fn RowBindingResultSet(comptime Base: type) type {
     };
 }
 
-/// `Row` represents a single record when `bind_type` is set to `.column`.
+/// `Row` represents a single record for `ColumnBindingResultSet`.
 pub const Row = struct {
-    const Self = @This();
-
     const Column = struct {
         name: []const u8,
-        sql_type: odbc.Types.SqlType,
         data: []u8,
         indicator: c_longlong,
     };
 
     columns: []Column,
 
-    statement: *odbc.Statement,
-    allocator: *Allocator,
-
-
-    fn init(allocator: *Allocator, statement: *odbc.Statement, num_columns: usize) !Self {
-        var row: Self = undefined;
-            
-        row.statement = statement;
-        row.allocator = allocator;
-
-        row.columns = try allocator.alloc(Column, num_columns);
-
-        for (row.columns) |*column, column_index| {
-            column.sql_type = (try row.statement.getColumnAttribute(column_index + 1, .Type)).Type;
-            column.name = (try row.statement.getColumnAttribute(column_index + 1, .BaseColumnName)).BaseColumnName;
-
-            const column_size = (try row.statement.getColumnAttribute(column_index + 1, .OctetLength)).OctetLength;
-
-            column.data = try allocator.alloc(u8, @intCast(usize, column_size));
-
-            try row.statement.bindColumn(
-                @intCast(u16, column_index + 1),
-                column.sql_type.defaultCType(),
-                column.data,
-                &column.indicator
-            );
-        }
-
-        return row;
+    fn init(allocator: *Allocator, num_columns: usize) !Row {
+        return Row{
+            .columns = try allocator.alloc(Column, num_columns),
+        };
     }
 
-    fn deinit(self: *Self) void {
-        for (self.columns) |*column| {
-            self.allocator.free(column.name);
-            self.allocator.free(column.data);
-        }
-        self.allocator.free(self.columns);
+    fn deinit(self: *Row, allocator: *Allocator) void {
+        allocator.free(self.columns);
     }
 
     /// Get a value from a column using the column name. Will attempt to convert whatever bytes
     /// are stored for the column into `ColumnType`.
-    pub fn get(self: *Self, comptime ColumnType: type, column_name: []const u8) !ColumnType {
+    pub fn get(self: *Row, comptime ColumnType: type, allocator: *Allocator, column_name: []const u8) !ColumnType {
         const column_index = for (self.columns) |column, index| {
             if (std.mem.eql(u8, column.name, column_name)) break index;
         } else return error.ColumnNotFound;
 
-        return try self.getWithIndex(ColumnType, column_index + 1);
+        return try self.getWithIndex(ColumnType, allocator, column_index + 1);
     }
 
     /// Get a value from a column using the column index. Column indices start from 1. Will attempt to
     /// convert whatever bytes are stored for the column into `ColumnType`.
-    pub fn getWithIndex(self: *Self, comptime ColumnType: type, column_index: usize) !ColumnType {
+    pub fn getWithIndex(self: *Row, comptime ColumnType: type, allocator: *Allocator, column_index: usize) !ColumnType {
         const target_column = self.columns[column_index - 1];
 
         if (target_column.indicator == odbc.sys.SQL_NULL_DATA) {
@@ -361,7 +330,7 @@ pub const Row = struct {
                         break :blk error.InvalidString;
                     }
 
-                    var return_buffer = try self.allocator.alloc(u8, slice_length);
+                    var return_buffer = try allocator.alloc(u8, slice_length);
                     std.mem.copy(u8, return_buffer, target_column.data[0..slice_length]);
 
                     break :blk return_buffer;
@@ -373,31 +342,79 @@ pub const Row = struct {
     }
 };
 
-/// ColumnBindingResultSet is used when `bind_type` is set to `.column`. This will happen when a given struct
-/// has a function called `fromRow` declared on it. This result set will use that function to convert data
-/// from generic `Row` types to `Base`.
+/// `ColumnBindingResultSet` is used when `Base` has a function defined on it called `fromRow`. It binds generic
+/// column data structures to each column in the result set, and then `Base.fromRow` defines how to turn each row
+/// into an instance of `Base`.
 fn ColumnBindingResultSet(comptime Base: type) type {
     return struct {
         const Self = @This();
+        const Column = struct {
+            name: []const u8,
+            sql_type: odbc.Types.SqlType,
+            data: []u8,
+            octet_length: usize,
+            indicator: []c_longlong,
+        };
 
+        columns: []Column,
         row: Row,
+        row_status: []RowStatus,
+        is_first: bool = true,
+        current_row: usize = 0,
+        row_count: usize = 0,
+        rows_fetched: usize = 0,
 
         statement: odbc.Statement,
         allocator: *Allocator,
 
-        pub fn init(allocator: *Allocator, statement: odbc.Statement) !Self {
+        pub fn init(allocator: *Allocator, statement: odbc.Statement, row_count: usize) !Self {
             var result: Self = undefined;
             result.statement = statement;
             result.allocator = allocator;
+            result.rows_fetched = 0;
+            result.is_first = true;
+            result.row_status = try allocator.alloc(RowStatus, row_count);
+            result.row_count = row_count;
+
+            try result.statement.setAttribute(.{ .RowBindType = odbc.sys.SQL_BIND_BY_COLUMN });
+            try result.statement.setAttribute(.{ .RowArraySize = row_count });
+            try result.statement.setAttribute(.{ .RowStatusPointer = result.row_status });
 
             const num_columns = try result.statement.numResultColumns();
-            result.row = try Row.init(allocator, &result.statement, num_columns);
+            result.columns = try allocator.alloc(Column, num_columns);
+            result.row = try Row.init(allocator, num_columns);
+
+            for (result.columns) |*column, column_index| {
+                column.sql_type = (try result.statement.getColumnAttribute(column_index + 1, .Type)).Type;
+                column.name = (try result.statement.getColumnAttribute(column_index + 1, .BaseColumnName)).BaseColumnName;
+
+                column.octet_length = @intCast(usize, (try result.statement.getColumnAttribute(column_index + 1, .OctetLength)).OctetLength);
+
+                column.data = try allocator.alloc(u8, row_count * column.octet_length);
+                column.indicator = try allocator.alloc(c_longlong, row_count);
+
+                try result.statement.bindColumn(
+                    @intCast(u16, column_index + 1),
+                    column.sql_type.defaultCType(),
+                    column.data,
+                    column.indicator.ptr,
+                    column.octet_length
+                );
+            }
 
             return result;
         }
 
         pub fn deinit(self: *Self) void {
-            self.row.deinit();
+            for (self.columns) |*column| {
+                self.allocator.free(column.name);
+                self.allocator.free(column.data);
+                self.allocator.free(column.indicator);
+            }
+
+            self.allocator.free(self.columns);
+            self.allocator.free(self.row_status);
+            self.row.deinit(self.allocator);
         }
         
         /// Keep fetching until all of the rows have been retrieved.
@@ -412,29 +429,48 @@ fn ColumnBindingResultSet(comptime Base: type) type {
             return results.toOwnedSlice();
         }
         
-        /// Get the next available result. This calls `statement.fetch()` every time, because column-wise
-        /// binding only allows for binding 1 row at a time. When `statement.fetch()` returns `error.NoData`,
-        /// this will return `null`.
         pub fn next(self: *Self) !?Base {
-            self.statement.fetch() catch |err| switch (err) {
-                error.NoData => return null,
-                else => return err
-            };
+            if (self.is_first) {
+                try self.statement.setAttribute(.{ .RowsFetchedPointer = &self.rows_fetched });
+                self.is_first = false;
+            }
 
-            return try Base.fromRow(&self.row, self.allocator);    
+            while (true) {
+                if (self.current_row >= self.rows_fetched) {
+                    self.statement.fetch() catch |err| switch (err) {
+                        error.NoData => return null,
+                        else => return err,
+                    };
+                    self.current_row = 0;
+                }
+
+                while (self.current_row < self.rows_fetched and self.current_row < self.row_count) : (self.current_row += 1) {
+                    switch (self.row_status[self.current_row]) {
+                        .Success, .SuccessWithInfo, .Error => {
+                            for (self.row.columns) |*row_column, column_index| {
+                                const current_column = self.columns[column_index];
+                                row_column.name = current_column.name;
+                                const data_start_index = self.current_row * current_column.octet_length;
+                                const data_end_index = data_start_index + current_column.octet_length;
+                                row_column.data = current_column.data[data_start_index..data_end_index];
+                                row_column.indicator = current_column.indicator[self.current_row];
+                            }
+
+                            self.current_row += 1;
+
+                            return try Base.fromRow(&self.row, self.allocator);    
+                        },
+                        else => {},
+                    }
+                }
+            }
         }
     };
 }
 
-pub const BindType = enum(u1) {
-    row,
-    column
-};
-
 pub fn ResultSet(comptime Base: type) type {
-    const bind_type: BindType = comptime if (@hasDecl(Base, "fromRow")) .column else .row; 
-    return switch (bind_type) {
-        .row => RowBindingResultSet(Base),
-        .column => ColumnBindingResultSet(Base),
-    };
+    return if (@hasDecl(Base, "fromRow"))
+        ColumnBindingResultSet(Base)
+    else
+        RowBindingResultSet(Base);
 }

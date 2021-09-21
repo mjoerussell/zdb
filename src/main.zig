@@ -9,43 +9,43 @@ const ConnectionInfo = db_connection.ConnectionInfo;
 
 const Row = @import("result_set.zig").Row;
 
-const OdbcTestType = struct {
-    id: u32,
-    name: []const u8,
-    occupation: []const u8,
-    age: u32,
-
-    fn deinit(self: *OdbcTestType, allocator: *Allocator) void {
-        allocator.free(self.name);
-        allocator.free(self.occupation);
-    }
-};
-
 // const OdbcTestType = struct {
+//     id: u32,
 //     name: []const u8,
-//     age: []const u8,
-//     job_info: struct {
-//         job_name: []const u8
-//     },
-
-//     pub fn fromRow(row: *Row, allocator: *Allocator) !OdbcTestType {
-//         var result: OdbcTestType = undefined;
-//         result.name = try row.get([]const u8, "name");
-        
-//         const age = try row.get(u32, "age");
-//         result.age = try std.fmt.allocPrint(allocator, "{} years old", .{age});
-
-//         result.job_info.job_name = try row.get([]const u8, "occupation");
-
-//         return result;
-//     }
+//     occupation: []const u8,
+//     age: u32,
 
 //     fn deinit(self: *OdbcTestType, allocator: *Allocator) void {
 //         allocator.free(self.name);
-//         allocator.free(self.age);
-//         allocator.free(self.job_info.job_name);
+//         allocator.free(self.occupation);
 //     }
 // };
+
+const OdbcTestType = struct {
+    name: []const u8,
+    age: []const u8,
+    job_info: struct {
+        job_name: []const u8
+    },
+
+    pub fn fromRow(row: *Row, allocator: *Allocator) !OdbcTestType {
+        var result: OdbcTestType = undefined;
+        result.name = try row.get([]const u8, allocator, "name");
+        
+        const age = try row.get(u32, allocator, "age");
+        result.age = try std.fmt.allocPrint(allocator, "{} years old", .{age});
+
+        result.job_info.job_name = try row.get([]const u8, allocator, "occupation");
+
+        return result;
+    }
+
+    fn deinit(self: *OdbcTestType, allocator: *Allocator) void {
+        allocator.free(self.name);
+        allocator.free(self.age);
+        allocator.free(self.job_info.job_name);
+    }
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -69,11 +69,13 @@ pub fn main() !void {
         .{ "Reese", 30 },
         \\SELECT *
         \\FROM odbc_zig_test
-        \\WHERE name < ? OR age < ?
+        \\WHERE name = ? OR age < ?
     );
 
     var result_set = try cursor.execute(OdbcTestType);
     defer result_set.deinit();
+
+    std.debug.print("Got result set in main\n", .{});
 
     const query_results = try result_set.getAllRows();
     defer {
@@ -85,9 +87,10 @@ pub fn main() !void {
     for (query_results) |result| {
         // std.debug.print("Id: {}\n", .{result.id});
         std.debug.print("Name: {s}\n", .{result.name});
-        std.debug.print("Occupation: {s}\n", .{result.occupation});
-        // std.debug.print("Occupation: {s}\n", .{result.job_info.job_name});
-        std.debug.print("Age: {}\n\n", .{result.age});
+        // std.debug.print("Occupation: {s}\n", .{result.occupation});
+        std.debug.print("Occupation: {s}\n", .{result.job_info.job_name});
+        std.debug.print("Age: {s}\n\n", .{result.age});
+        // std.debug.print("Age: {}\n\n", .{result.age});
     }
 
     try cursor.close();
