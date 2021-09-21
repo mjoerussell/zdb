@@ -131,7 +131,7 @@ pub const Cursor = struct {
         var num_rows_inserted: usize = 0;
         for (values) |value| {
             inline for (std.meta.fields(DataType)) |field, index| {
-                try self.bindParameter(index, @field(value, field.name));
+                try self.bindParameter(index + 1, @field(value, field.name));
             }
             
             _ = try self.statement.execute();
