@@ -83,14 +83,14 @@ pub const Cursor = struct {
 
         _ = try self.statement.executeDirect(sql_statement);
 
-        return try ResultSet(ResultType).init(self.allocator, self.statement);
+        return try ResultSet(ResultType).init(self.allocator, self.statement, 10);
     }
 
     /// Execute a statement and return the result set. A statement must have been prepared previously
     /// using `Cursor.prepare()`.
     pub fn execute(self: *Cursor, comptime ResultType: type) !ResultSet(ResultType) {
         _ = try self.statement.execute();
-        return try ResultSet(ResultType).init(self.allocator, self.statement);
+        return try ResultSet(ResultType).init(self.allocator, self.statement, 10);
     }
 
     /// Prepare a SQL statement for execution. If you want to execute a statement multiple times,
@@ -158,7 +158,7 @@ pub const Cursor = struct {
     }
 
     pub fn columns(self: *Cursor, catalog_name: ?[]const u8, schema_name: ?[]const u8, table_name: []const u8) ![]Column {
-        var result_set = try ResultSet(Column).init(self.allocator, self.statement);
+        var result_set = try ResultSet(Column).init(self.allocator, self.statement, 10);
         defer result_set.deinit();
 
         try self.statement.columns(catalog_name, schema_name, table_name, null);
@@ -167,7 +167,7 @@ pub const Cursor = struct {
     }
 
     pub fn tables(self: *Cursor, catalog_name: ?[]const u8, schema_name: ?[]const u8) ![]Table {
-        var result_set = try ResultSet(Table).init(self.allocator, self.statement);
+        var result_set = try ResultSet(Table).init(self.allocator, self.statement, 10);
         defer result_set.deinit();
 
         try self.statement.tables(catalog_name, schema_name, null, null);
@@ -176,7 +176,7 @@ pub const Cursor = struct {
     }
 
     pub fn tablePrivileges(self: *Cursor, catalog_name: ?[]const u8, schema_name: ?[]const u8, table_name: []const u8) ![]TablePrivileges {
-        var result_set = try ResultSet(TablePrivileges).init(self.allocator, self.statement);
+        var result_set = try ResultSet(TablePrivileges).init(self.allocator, self.statement, 10);
         defer result_set.deinit();
 
         try self.statement.tablePrivileges(catalog_name, schema_name, table_name);
