@@ -11,6 +11,11 @@ const ParameterBucket = sql_parameter.ParameterBucket;
 
 const Cursor = @import("cursor.zig").Cursor;
 
+pub const CommitMode = enum(u1) {
+    auto,
+    manual
+};
+
 pub const ConnectionInfo = struct {
     pub const Config = struct {
         driver: ?[]const u8 = null,
@@ -172,6 +177,10 @@ pub const DBConnection = struct {
     pub fn deinit(self: *DBConnection) void {
         self.connection.deinit() catch {};
         self.environment.deinit() catch {};
+    }
+
+    pub fn setCommitMode(self: *DBConnection, mode: CommitMode) !void {
+        try self.connection.setAttribute(.{ .Autocommit = mode == .auto });
     }
 
     pub fn getCursor(self: *DBConnection, allocator: *Allocator) !Cursor {
