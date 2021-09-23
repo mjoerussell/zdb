@@ -9,6 +9,11 @@ interaction between the developer and the DB.
 
 To use zdb, follow these steps:
 
+### 0. Dependencies
+
+Make sure you have an ODBC driver and driver manager installed already. On Windows, this should be pre-installed. On other
+systems, a good option is [`unixODBC`](unixodbc.org).
+
 ### 1. Clone
 
 Include this repo in your project path. Best way to do this is by running
@@ -21,46 +26,18 @@ $ git submodule update --init --recursive
 
 After this you should have **zdb** and also it's dependencies fully pulled into your project.
 
-### 2. (a) Windows
+### 2. Add to your project
 
 Add this to your project's `build.zig`:
 
 ```zig
-exe.addPackage(Pkg{
-    .name = "zdb",
-    .path = "zdb/src/zdb.zig",
-    .dependencies = [_]Pkg{
-        .{
-            .name = "odbc",
-            .path = "zdb/zig-odbc/src/lib.zig",
-        }
-    }
-});
-exe.linkLibC();
-exe.linkSystemLibrary("odbc32");
-```
 
-### 2. (b) MacOS
+const build_zdb = @import("zdb/build_pkg.zig");
 
-Install [`unixODBC`](unixodbc.org) if you have not already.
-
-Add this to your project's `build.zig`:
-
-```zig
-exe.addPackage(Pkg{
-    .name = "zdb",
-    .path = "zdb/src/zdb.zig",
-    .dependencies = [_]Pkg{
-        .{
-            .name = "odbc",
-            .path = "zdb/zig-odbc/src/lib.zig",
-        }
-    }
-});
-exe.linkLibC();
-exe.addIncludeDir("/usr/local/include");
-exe.addIncludeDir("/usr/local/lib");
-exe.linkSystemLibrary("odbc");
+pub fn build(b: *std.build.Builder) void {
+    // ...
+    build_zdb.buildPkg(exe, "zdb");
+}
 ```
 
 ### 3. Usage in Code
