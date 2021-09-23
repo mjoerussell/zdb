@@ -12,7 +12,7 @@ To use zdb, follow these steps:
 ### 0. Dependencies
 
 Make sure you have an ODBC driver and driver manager installed already. On Windows, this should be pre-installed. On other
-systems, a good option is [`unixODBC`](unixodbc.org).
+systems, a good option is [`unixODBC`](http://www.unixodbc.org).
 
 ### 1. Clone
 
