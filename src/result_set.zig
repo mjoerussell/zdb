@@ -18,7 +18,7 @@ const sliceToValue = util.sliceToValue;
 /// 
 /// // Becomes....
 ///
-/// const FetchResult(Base).RowType = struct {
+/// const FetchResult(Base).RowType = extern struct {
 ///    field1: u32,
 ///    field1_len_or_ind: c_longlong,
 ///    field2: [200]u8,
