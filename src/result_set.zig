@@ -204,10 +204,8 @@ fn RowBindingResultSet(comptime Base: type) type {
 
             while (true) {
                 if (self.current_row >= self.rows_fetched) {
-                    self.statement.fetch() catch |err| switch (err) {
-                        error.NoData => return null,
-                        else => return err
-                    };
+                    const has_data = try self.statement.fetch();
+                    if (!has_data) return null;
                     self.current_row = 0;
                 }
 
@@ -437,10 +435,8 @@ fn ColumnBindingResultSet(comptime Base: type) type {
 
             while (true) {
                 if (self.current_row >= self.rows_fetched) {
-                    self.statement.fetch() catch |err| switch (err) {
-                        error.NoData => return null,
-                        else => return err,
-                    };
+                    const has_data = try self.statement.fetch();
+                    if (!has_data) return null;
                     self.current_row = 0;
                 }
 

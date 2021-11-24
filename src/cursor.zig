@@ -101,45 +101,79 @@ pub const Cursor = struct {
         try self.statement.prepare(sql_statement);
     }
 
-    pub fn insert(self: *Cursor, comptime DataType: type, comptime table_name: []const u8, values: []const DataType) !usize {
+    // pub fn insert(self: *Cursor, comptime DataType: type, comptime table_name: []const u8, values: []const DataType) !usize {
+    pub fn insert(self: *Cursor, comptime DataType: type, comptime insert_statement: []const u8, values: []const DataType) !usize {
         // @todo Try using arrays of parameters for bulk ops
-        const num_fields = comptime std.meta.fields(DataType).len;
+        AssertInsertable(DataType);
 
-        const insert_statement = comptime blk: {
-            var statement: []const u8 = "INSERT INTO " ++ table_name ++ " (";
-            var statement_end: []const u8 = "VALUES (";
-            for (std.meta.fields(DataType)) |field, index| {
-                statement_end = statement_end ++ "?";
-                var column_name: []const u8 = &[_]u8{}; 
-                for (field.name) |c| {
-                    column_name = column_name ++ [_]u8{std.ascii.toLower(c)};
-                }
-                statement = statement ++ column_name;
-                if (index < num_fields - 1) {
-                    statement = statement ++ ", ";
-                    statement_end = statement_end ++ ", ";
-                }
+        const num_params = blk: {
+            comptime var count: usize = 0;
+            inline for (insert_statement) |c| {
+                if (c == '?') count += 1;
             }
-
-            statement = statement ++ ") " ++ statement_end ++ ")";
-            break :blk statement;
+            break :blk count;
         };
 
         try self.prepare(.{}, insert_statement);
-        self.parameters = try ParameterBucket.init(self.allocator, num_fields);
+        self.parameters = try ParameterBucket.init(self.allocator, num_params);
 
         var num_rows_inserted: usize = 0;
-        for (values) |value| {
-            inline for (std.meta.fields(DataType)) |field, index| {
-                try self.bindParameter(index + 1, @field(value, field.name));
-            }
-            
-            _ = try self.statement.execute();
 
+        for (values) |value, value_index| {
+            switch (@typeInfo(DataType)) {
+                .Pointer => |pointer_tag| switch (pointer_tag.size) {
+                    .Slice => {
+                        if (value.len < num_params) return error.WrongParamCount;
+                        for (value) |param, param_index| {
+                            try self.bindParameter(param_index + 1, param);
+                        }
+                    },
+                    .One => {
+                        if (num_params != 1) return error.WrongParamCount;
+                        try self.bindParameter(value_index + 1, value.*);
+                    },
+                    else => unreachable,
+                },
+                .Struct => |struct_tag| {
+                    comptime if (struct_tag.fields.len != num_params) 
+                        @compileError("Struct type " ++ @typeName(DataType) ++ " cannot be inserted as it has the wrong number of fields.");
+                    inline for (std.meta.fields(DataType)) |field, param_index| {
+                        try self.bindParameter(param_index + 1, @field(value, field.name));
+                    }
+                },
+                .Array => |array_tag| {
+                    comptime if (array_tag.len != num_params) @compileError("Array type " ++ @typeName(DataType) ++ " cannot be inserted because it has the wrong length");
+                    for (value) |val, param_index| {
+                        try self.bindParameter(param_index + 1, val);
+                    }
+                },
+                .Optional => {
+                    comptime if (num_params != 1) @compileError("Cannot insert Optional type - statement only has one parameter.");
+                    try self.bindParameter(value_index + 1, value);
+                },
+                .Enum => {
+                    comptime if (num_params != 1) @compileError("Cannot insert Enum type - statement only has one parameter.");
+                    const enum_value = @enumToInt(value);
+                    try self.bindParameter(value_index + 1, enum_value);
+                }, 
+                .EnumLiteral => {
+                    comptime if (num_params != 1) @compileError("Cannot insert EnumLiteral type - statement only has one parameter.");
+                    try self.bindParameter(value_index + 1, @tagName(value));
+                },
+                .Int, .Float, .ComptimeInt, .ComptimeFloat, .Bool => {
+                    comptime if (num_params != 1) @compileError("Cannot insert " ++ @typeName(DataType) ++ " type - statement only has one parameter.");
+                    try self.bindParameter(value_index + 1, value);
+                },
+                else => unreachable,
+            }
+
+            self.statement.execute() catch |err| {
+                std.log.err("{s}", .{ @errorName(err) });
+                return err;
+            };
             num_rows_inserted += try self.statement.rowCount();
         }
-        
-        // @todo manual-commit mode
+
         return num_rows_inserted;
     }
 
@@ -228,6 +262,22 @@ pub const Cursor = struct {
         return self.statement.getDiagnosticRecords() catch return &[_]odbc.Error.DiagnosticRecord{};
     }
 
-
-
 };
+
+/// Assert that the type `T` can be used as an insert parameter. Deeply checks types that have child types when necessary.
+fn AssertInsertable(comptime T: type) void {
+    switch (@typeInfo(T)) {
+        .Frame, .AnyFrame, .Void, .NoReturn, .Undefined, 
+        .ErrorUnion, .ErrorSet, .Fn, .BoundFn, .Union,
+        .Vector, .Opaque, .Null, .Type => @compileError(@tagName(std.meta.activeTag(@typeInfo(T))) ++ " types cannot be used as insert parameters"),
+        .Pointer => |pointer_tag| switch (pointer_tag.size) {
+            .Slice, .One => AssertInsertable(pointer_tag.child),
+            else => @compileError(@tagName(std.meta.activeTag(pointer_tag.size)) ++ "-type pointers cannot be used as insert parameters"),
+        },
+        .Array => |array_tag| AssertInsertable(array_tag.child),
+        .Optional => |op_tag| AssertInsertable(op_tag.child),
+        .Struct => {},
+        .Enum, .EnumLiteral => {},
+        .Int, .Float, .ComptimeInt, .ComptimeFloat, .Bool => {}
+    }
+}

@@ -70,7 +70,11 @@ pub fn main() !void {
     var cursor = try connection.getCursor(allocator);
     defer cursor.deinit() catch {};
 
-    // _ = try cursor.insert(OdbcTestType, "odbc_zig_test", &[_]OdbcTestType{
+    // _ = try cursor.insert(
+    //     OdbcTestType, 
+    //     \\INSERT INTO odbc_zig_test (id, name, occupation, age)
+    //     \\VALUES (?, ?, ?, ?)
+    //     , &[_]OdbcTestType{
     //     .{
     //         .id = 7,
     //         .name = "Greg",
