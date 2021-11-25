@@ -16,11 +16,11 @@ pub fn buildPkg(exe: *LibExeObjStep, package_name: []const u8) void {
 
     const self_pkg = Pkg{
         .name = package_name, 
-        .path = "zdb/src/zdb.zig",
+        .path = .{ .path = "zdb/src/zdb.zig" },
         .dependencies = &.{
             Pkg{
                 .name = "odbc",
-                .path = "zdb/zig-odbc/src/lib.zig",
+                .path = .{ .path = "zdb/zig-odbc/src/lib.zig" },
             }
         }
     };
