@@ -11,19 +11,13 @@ pub fn buildPkg(exe: *LibExeObjStep, package_name: []const u8) void {
         exe.addIncludeDir("/usr/local/include");
         exe.addIncludeDir("/usr/local/lib");
     }
-    
+
     exe.linkSystemLibrary(odbc_library_name);
 
-    const self_pkg = Pkg{
-        .name = package_name, 
-        .path = "zdb/src/zdb.zig",
-        .dependencies = &.{
-            Pkg{
-                .name = "odbc",
-                .path = "zdb/zig-odbc/src/lib.zig",
-            }
-        }
-    };
+    const self_pkg = Pkg{ .name = package_name, .path = .{ .path = "zdb/src/zdb.zig" }, .dependencies = &.{Pkg{
+        .name = "odbc",
+        .path = .{ .path = "zdb/zig-odbc/src/lib.zig" },
+    }} };
 
     exe.addPackage(self_pkg);
 }
