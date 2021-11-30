@@ -16,7 +16,6 @@ const Table = catalog_types.Table;
 const TablePrivileges = catalog_types.TablePrivileges;
 
 pub const Cursor = struct {
-
     parameters: ?ParameterBucket = null,
 
     connection: Connection,
@@ -39,20 +38,16 @@ pub const Cursor = struct {
 
     /// Close the current cursor. If the cursor is not open, does nothing and does not return an error.
     pub fn close(self: *Cursor) !void {
-        self.statement.closeCursor() catch |err| {
-            var errors = try self.statement.getErrors(self.allocator);
-            for (errors) |e| {
-                // InvalidCursorState just means that no cursor was open on the statement. Here, we just want to
-                // ignore this error and pretend everything succeeded.
-                if (e == .InvalidCursorState) return;
-            }
-            return err;
+        self.statement.closeCursor() catch |err| switch (err) {
+            error.InvalidCursorState => return,
+            else => return err,
         };
     }
 
     /// Execute a SQL statement and return the result set. SQL query parameters can be passed with the `parameters` argument. 
     /// This is the fastest way to execute a SQL statement once.
-    pub fn executeDirect(self: *Cursor, comptime ResultType: type, parameters: anytype, sql_statement: []const u8) !ResultSet(ResultType) {
+    // pub fn executeDirect(self: *Cursor, comptime ResultType: type, parameters: anytype, sql_statement: []const u8) !ResultSet(ResultType) {
+    pub fn executeDirect(self: *Cursor, sql_statement: []const u8, parameters: anytype) !ResultSet {
         var num_params: usize = 0;
         for (sql_statement) |c| {
             if (c == '?') num_params += 1;
@@ -71,26 +66,30 @@ pub const Cursor = struct {
             const stored_param = try self.parameters.?.addParameter(index, param);
             const sql_param = sql_parameter.default(param);
             try self.statement.bindParameter(
-                @intCast(u16, index + 1), 
-                .Input, 
-                sql_param.c_type, 
-                sql_param.sql_type, 
-                stored_param.param, 
-                sql_param.precision, 
+                @intCast(u16, index + 1),
+                .Input,
+                sql_param.c_type,
+                sql_param.sql_type,
+                stored_param.param,
+                sql_param.precision,
                 stored_param.indicator,
             );
         }
 
         _ = try self.statement.executeDirect(sql_statement);
 
-        return try ResultSet(ResultType).init(self.allocator, self.statement, 10);
+        // return try ResultSet(ResultType).init(self.allocator, self.statement, 10);
+        return ResultSet.init(self.allocator, self.statement);
     }
 
     /// Execute a statement and return the result set. A statement must have been prepared previously
     /// using `Cursor.prepare()`.
-    pub fn execute(self: *Cursor, comptime ResultType: type) !ResultSet(ResultType) {
-        _ = try self.statement.execute();
-        return try ResultSet(ResultType).init(self.allocator, self.statement, 10);
+    // pub fn execute(self: *Cursor, comptime ResultType: type) !ResultSet(ResultType) {
+    pub fn execute(self: *Cursor) !ResultSet {
+        // _ = try self.statement.execute();
+        try self.statement.execute();
+        // return try ResultSet(ResultType).init(self.allocator, self.statement, 10);
+        return try ResultSet.init(self.allocator, self.statement);
     }
 
     /// Prepare a SQL statement for execution. If you want to execute a statement multiple times,
@@ -135,7 +134,7 @@ pub const Cursor = struct {
                     else => unreachable,
                 },
                 .Struct => |struct_tag| {
-                    comptime if (struct_tag.fields.len != num_params) 
+                    comptime if (struct_tag.fields.len != num_params)
                         @compileError("Struct type " ++ @typeName(DataType) ++ " cannot be inserted as it has the wrong number of fields.");
                     inline for (std.meta.fields(DataType)) |field, param_index| {
                         try self.bindParameter(param_index + 1, @field(value, field.name));
@@ -155,7 +154,7 @@ pub const Cursor = struct {
                     comptime if (num_params != 1) @compileError("Cannot insert Enum type - statement only has one parameter.");
                     const enum_value = @enumToInt(value);
                     try self.bindParameter(value_index + 1, enum_value);
-                }, 
+                },
                 .EnumLiteral => {
                     comptime if (num_params != 1) @compileError("Cannot insert EnumLiteral type - statement only has one parameter.");
                     try self.bindParameter(value_index + 1, @tagName(value));
@@ -168,7 +167,7 @@ pub const Cursor = struct {
             }
 
             self.statement.execute() catch |err| {
-                std.log.err("{s}", .{ @errorName(err) });
+                std.log.err("{s}", .{@errorName(err)});
                 return err;
             };
             num_rows_inserted += try self.statement.rowCount();
@@ -225,12 +224,12 @@ pub const Cursor = struct {
             const stored_param = try params.addParameter(index - 1, parameter);
             const sql_param = sql_parameter.default(parameter);
             try self.statement.bindParameter(
-                @intCast(u16, index), 
-                .Input, 
-                sql_param.c_type, 
-                sql_param.sql_type, 
-                stored_param.param, 
-                sql_param.precision, 
+                @intCast(u16, index),
+                .Input,
+                sql_param.c_type,
+                sql_param.sql_type,
+                stored_param.param,
+                sql_param.precision,
                 stored_param.indicator,
             );
         }
@@ -251,7 +250,7 @@ pub const Cursor = struct {
             try self.bindParameter(index + 1, param);
         }
     }
-    
+
     /// Deinitialize any parameters allocated on this statement (if any), and reset `self.parameters` to null.
     fn clearParameters(self: *Cursor) void {
         if (self.parameters) |*p| p.deinit();
@@ -261,15 +260,12 @@ pub const Cursor = struct {
     pub fn getErrors(self: *Cursor) []odbc.Error.DiagnosticRecord {
         return self.statement.getDiagnosticRecords() catch return &[_]odbc.Error.DiagnosticRecord{};
     }
-
 };
 
 /// Assert that the type `T` can be used as an insert parameter. Deeply checks types that have child types when necessary.
 fn AssertInsertable(comptime T: type) void {
     switch (@typeInfo(T)) {
-        .Frame, .AnyFrame, .Void, .NoReturn, .Undefined, 
-        .ErrorUnion, .ErrorSet, .Fn, .BoundFn, .Union,
-        .Vector, .Opaque, .Null, .Type => @compileError(@tagName(std.meta.activeTag(@typeInfo(T))) ++ " types cannot be used as insert parameters"),
+        .Frame, .AnyFrame, .Void, .NoReturn, .Undefined, .ErrorUnion, .ErrorSet, .Fn, .BoundFn, .Union, .Vector, .Opaque, .Null, .Type => @compileError(@tagName(std.meta.activeTag(@typeInfo(T))) ++ " types cannot be used as insert parameters"),
         .Pointer => |pointer_tag| switch (pointer_tag.size) {
             .Slice, .One => AssertInsertable(pointer_tag.child),
             else => @compileError(@tagName(std.meta.activeTag(pointer_tag.size)) ++ "-type pointers cannot be used as insert parameters"),
@@ -278,6 +274,6 @@ fn AssertInsertable(comptime T: type) void {
         .Optional => |op_tag| AssertInsertable(op_tag.child),
         .Struct => {},
         .Enum, .EnumLiteral => {},
-        .Int, .Float, .ComptimeInt, .ComptimeFloat, .Bool => {}
+        .Int, .Float, .ComptimeInt, .ComptimeFloat, .Bool => {},
     }
 }

@@ -31,7 +31,7 @@ const OdbcTestType = struct {
 //     pub fn fromRow(row: *Row, allocator: *Allocator) !OdbcTestType {
 //         var result: OdbcTestType = undefined;
 //         result.name = try row.get([]const u8, allocator, "name");
-        
+
 //         const age = try row.get(u32, allocator, "age");
 //         result.age = try std.fmt.allocPrint(allocator, "{} years old", .{age});
 
@@ -53,10 +53,7 @@ pub fn main() !void {
 
     const allocator = &gpa.allocator;
 
-    var connection_info = try ConnectionInfo.initWithConfig(allocator, .{
-        .driver = "PostgreSQL Unicode(x64)",
-        .dsn = "PostgreSQL35W"
-    });
+    var connection_info = try ConnectionInfo.initWithConfig(allocator, .{ .driver = "PostgreSQL Unicode(x64)", .dsn = "PostgreSQL35W" });
     defer connection_info.deinit();
 
     const connection_string = try connection_info.toConnectionString(allocator);
@@ -71,7 +68,7 @@ pub fn main() !void {
     defer cursor.deinit() catch {};
 
     // _ = try cursor.insert(
-    //     OdbcTestType, 
+    //     OdbcTestType,
     //     \\INSERT INTO odbc_zig_test (id, name, occupation, age)
     //     \\VALUES (?, ?, ?, ?)
     //     , &[_]OdbcTestType{
@@ -92,21 +89,34 @@ pub fn main() !void {
     //     \\WHERE name = ? OR age < ?
     // );
 
-    var result_set = try cursor.executeDirect(OdbcTestType, .{}, "select * from odbc_zig_test");
-    defer result_set.deinit();
+    // var result_set = try cursor.executeDirect(OdbcTestType, .{}, "select * from odbc_zig_test");
+    var result_set = try cursor.executeDirect("select * from odbc_zig_test", .{});
+    // defer result_set.deinit();
 
-    const query_results = try result_set.getAllRows();
-    defer {
-        for (query_results) |*q| q.deinit(allocator);
-        allocator.free(query_results);
-    }
+    // var result_iter = try result_set.itemIterator(OdbcTestType);
+    // defer result_iter.deinit();
+    // // const query_results = try result_set.getAllRows();
+    // const query_results = try result_iter.getAllRows();
+    // defer {
+    //     for (query_results) |*q| q.deinit(allocator);
+    //     allocator.free(query_results);
+    // }
 
+    // for (query_results) |result| {
+    //     std.debug.print("Id: {}\n", .{result.id});
+    //     std.debug.print("Name: {s}\n", .{result.name});
+    //     std.debug.print("Occupation: {s}\n", .{result.occupation});
+    //     std.debug.print("Age: {}\n\n", .{result.age});
+    // }
 
-    for (query_results) |result| {
-        std.debug.print("Id: {}\n", .{result.id});
-        std.debug.print("Name: {s}\n", .{result.name});
-        std.debug.print("Occupation: {s}\n", .{result.occupation});
-        std.debug.print("Age: {}\n\n", .{result.age});
+    var result_iter = try result_set.rowIterator();
+    defer result_iter.deinit();
+
+    while (try result_iter.next()) |row| {
+        std.debug.print("Id: {}\n", .{row.get(u32, "id")});
+        std.debug.print("Name: {s}\n", .{row.get([]const u8, "name")});
+        std.debug.print("Occupation: {s}\n", .{row.get([]const u8, "occupation")});
+        std.debug.print("Age: {}\n\n", .{row.get(u32, "age")});
     }
 
     try cursor.close();
