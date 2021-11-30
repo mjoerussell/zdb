@@ -69,7 +69,7 @@ pub fn FetchResult(comptime Target: type) type {
             return struct {
                 pub const RowType = PrivateRowType;
 
-                pub fn toTarget(allocator: *Allocator, row: RowType) !Target {
+                pub fn toTarget(allocator: *Allocator, row: RowType) error{ InvalidNullValue, OutOfMemory }!Target {
                     var item: Target = undefined;
                     inline for (std.meta.fields(Target)) |field| {
                         @setEvalBranchQuota(1_000_000);

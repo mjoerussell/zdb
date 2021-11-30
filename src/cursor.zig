@@ -190,31 +190,61 @@ pub const Cursor = struct {
         try self.connection.endTransaction(.rollback);
     }
 
-    pub fn columns(self: *Cursor, catalog_name: ?[]const u8, schema_name: ?[]const u8, table_name: []const u8) ![]Column {
-        var result_set = try ResultSet(Column).init(self.allocator, self.statement, 10);
-        defer result_set.deinit();
+    pub fn columns(cursor: *Cursor, catalog_name: ?[]const u8, schema_name: ?[]const u8, table_name: []const u8) ![]Column {
+        try cursor.statement.columns(catalog_name, schema_name, table_name, null);
+        var result_set = ResultSet.init(cursor.allocator, cursor.statement);
 
-        try self.statement.columns(catalog_name, schema_name, table_name, null);
+        var column_iter = try result_set.itemIterator(Column);
+        defer column_iter.deinit();
 
-        return try result_set.getAllRows();
+        var column_result = std.ArrayList(Column).init(cursor.allocator);
+        errdefer column_result.deinit();
+
+        while (true) {
+            var result = column_iter.next() catch continue;
+            var column = result orelse break;
+            try column_result.append(column);
+        }
+
+        return column_result.toOwnedSlice();
     }
 
-    pub fn tables(self: *Cursor, catalog_name: ?[]const u8, schema_name: ?[]const u8) ![]Table {
-        var result_set = try ResultSet(Table).init(self.allocator, self.statement, 10);
-        defer result_set.deinit();
+    pub fn tables(cursor: *Cursor, catalog_name: ?[]const u8, schema_name: ?[]const u8) ![]Table {
+        try cursor.statement.tables(catalog_name, schema_name, null, null);
+        var result_set = ResultSet.init(cursor.allocator, cursor.statement);
 
-        try self.statement.tables(catalog_name, schema_name, null, null);
+        var table_iter = try result_set.itemIterator(Table);
+        defer table_iter.deinit();
 
-        return try result_set.getAllRows();
+        var table_result = std.ArrayList(Table).init(cursor.allocator);
+        errdefer table_result.deinit();
+
+        while (true) {
+            var result = table_iter.next() catch continue;
+            var table = result orelse break;
+            try table_result.append(table);
+        }
+
+        return table_result.toOwnedSlice();
     }
 
-    pub fn tablePrivileges(self: *Cursor, catalog_name: ?[]const u8, schema_name: ?[]const u8, table_name: []const u8) ![]TablePrivileges {
-        var result_set = try ResultSet(TablePrivileges).init(self.allocator, self.statement, 10);
-        defer result_set.deinit();
+    pub fn tablePrivileges(cursor: *Cursor, catalog_name: ?[]const u8, schema_name: ?[]const u8, table_name: []const u8) ![]TablePrivileges {
+        try cursor.statement.tablePrivileges(catalog_name, schema_name, table_name);
+        var result_set = ResultSet.init(cursor.allocator, cursor.statement);
 
-        try self.statement.tablePrivileges(catalog_name, schema_name, table_name);
+        var priv_iter = try result_set.itemIterator(TablePrivileges);
+        defer priv_iter.deinit();
 
-        return try result_set.getAllRows();
+        var priv_result = std.ArrayList(TablePrivileges).init(cursor.allocator);
+        errdefer priv_result.deinit();
+
+        while (true) {
+            var result = priv_iter.next() catch continue;
+            var privilege = result orelse break;
+            try priv_result.append(privilege);
+        }
+
+        return priv_result.toOwnedSlice();
     }
 
     /// Bind a single value to a SQL parameter. If `self.parameters` is `null`, this does nothing
