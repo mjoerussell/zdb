@@ -65,38 +65,48 @@ pub fn main() !void {
 
     var result_set = try cursor.executeDirect("select * from odbc_zig_test", .{});
 
-    var result_iter = try result_set.itemIterator(OdbcTestType);
-    defer result_iter.deinit();
-
-    while (try result_iter.next()) |*result| {
-        std.debug.print("Id: {}\n", .{result.id});
-        std.debug.print("Name: {s}\n", .{result.name});
-        std.debug.print("Occupation: {s}\n", .{result.occupation});
-        std.debug.print("Age: {}\n\n", .{result.age});
-        result.deinit(allocator);
-    }
-
-    // var result_iter = try result_set.rowIterator();
+    // var result_iter = try result_set.itemIterator(OdbcTestType);
     // defer result_iter.deinit();
 
-    // while (try result_iter.next()) |row| {
-    //     std.debug.print("Id: {}\n", .{row.get(u32, "id")});
-    //     std.debug.print("Name: {s}\n", .{row.get([]const u8, "name")});
-    //     std.debug.print("Occupation: {s}\n", .{row.get([]const u8, "occupation")});
-    //     std.debug.print("Age: {}\n\n", .{row.get(u32, "age")});
+    // while (try result_iter.next()) |*result| {
+    //     std.debug.print("Id: {}\n", .{result.id});
+    //     std.debug.print("Name: {s}\n", .{result.name});
+    //     std.debug.print("Occupation: {s}\n", .{result.occupation});
+    //     std.debug.print("Age: {}\n\n", .{result.age});
+    //     result.deinit(allocator);
     // }
 
-    try cursor.close();
+    var result_iter = try result_set.rowIterator();
+    defer result_iter.deinit();
 
-    const tables = try cursor.tablePrivileges("zig-test", "public", "odbc_zig_test");
-    defer allocator.free(tables);
+    var stdout_writer = std.io.getStdOut().writer();
 
-    for (tables) |*table| {
-        std.debug.print("{}\n", .{table});
-        table.deinit(allocator);
+    while (try result_iter.next()) |row| {
+        try row.printColumn("id", .{ .integer = "{x}" }, stdout_writer);
+        try stdout_writer.writeAll("\n");
+        try row.printColumn("name", .{}, stdout_writer);
+        try stdout_writer.writeAll("\n");
+        try row.printColumn("occupation", .{}, stdout_writer);
+        try stdout_writer.writeAll("\n");
+        try row.printColumn("age", .{}, stdout_writer);
+        try stdout_writer.writeAll("\n\n");
+        // std.debug.print("Id: {}\n", .{row.get(u32, "id")});
+        // std.debug.print("Name: {s}\n", .{row.get([]const u8, "name")});
+        // std.debug.print("Occupation: {s}\n", .{row.get([]const u8, "occupation")});
+        // std.debug.print("Age: {}\n\n", .{row.get(u32, "age")});
     }
 
     try cursor.close();
+
+    // const tables = try cursor.tablePrivileges("zig-test", "public", "odbc_zig_test");
+    // defer allocator.free(tables);
+
+    // for (tables) |*table| {
+    //     std.debug.print("{}\n", .{table});
+    //     table.deinit(allocator);
+    // }
+
+    // try cursor.close();
 
     // const tables = try cursor.tables("zig-test", "public");
     // defer allocator.free(tables);
@@ -105,11 +115,11 @@ pub fn main() !void {
     //     std.debug.print("{}\n", .{table});
     //     table.deinit(allocator);
     // }
-    // const table_columns = try cursor.columns("zig-test", "public", "odbc_zig_test");
-    // defer allocator.free(table_columns);
+    const table_columns = try cursor.columns("zig-test", "public", "odbc_zig_test");
+    defer allocator.free(table_columns);
 
-    // for (table_columns) |*column| {
-    //     std.debug.print("{}\n", .{column});
-    //     column.deinit(allocator);
-    // }
+    for (table_columns) |*column| {
+        std.debug.print("{}\n", .{column});
+        column.deinit(allocator);
+    }
 }

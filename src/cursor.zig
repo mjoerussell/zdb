@@ -288,7 +288,7 @@ pub const Cursor = struct {
     }
 
     pub fn getErrors(self: *Cursor) []odbc.Error.DiagnosticRecord {
-        return self.statement.getDiagnosticRecords() catch return &[_]odbc.Error.DiagnosticRecord{};
+        return self.statement.getDiagnosticRecords(self.allocator) catch return &[_]odbc.Error.DiagnosticRecord{};
     }
 };
 

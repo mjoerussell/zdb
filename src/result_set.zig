@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const odbc = @import("odbc");
 const RowStatus = odbc.Types.StatementAttributeValue.RowStatus;
 const Statement = odbc.Statement;
+const CType = odbc.Types.CType;
 
 const util = @import("util.zig");
 const sliceToValue = util.sliceToValue;
@@ -127,10 +128,67 @@ pub fn FetchResult(comptime Target: type) type {
 
 /// `Row` represents a single record for `ColumnBindingResultSet`.
 pub const Row = struct {
+    pub const FormatOptions = struct {
+        char: []const u8 = "{c}",
+        varchar: []const u8 = "{s}",
+        long_varchar: []const u8 = "{s}",
+        w_char: []const u8 = "{u}",
+        w_varchar: []const u8 = "{u}",
+        w_long_varchar: []const u8 = "{u}",
+        decimal: []const u8 = "{d:.5}",
+        numeric: []const u8 = "{}",
+        small_int: []const u8 = "{}",
+        integer: []const u8 = "{}",
+        real: []const u8 = "{d:.5}",
+        float: []const u8 = "{d:.5}",
+        double: []const u8 = "{d:.5}",
+        bit: []const u8 = "{}",
+        tiny_int: []const u8 = "{}",
+        big_int: []const u8 = "{}",
+        binary: []const u8 = "{b}",
+        var_binary: []const u8 = "{b}",
+        long_var_binary: []const u8 = "{b}",
+        date: []const u8 = "{}",
+        time: []const u8 = "{}",
+        timestamp: []const u8 = "{}",
+        timestamp_ltz: []const u8 = "{}",
+        interval_month: []const u8 = "{}",
+        interval_year: []const u8 = "{}",
+        interval_year_to_month: []const u8 = "{}",
+        interval_day: []const u8 = "{}",
+        interval_hour: []const u8 = "{}",
+        interval_minute: []const u8 = "{}",
+        interval_second: []const u8 = "{}",
+        interval_day_to_hour: []const u8 = "{}",
+        interval_day_to_minute: []const u8 = "{}",
+        interval_day_to_second: []const u8 = "{}",
+        interval_hour_to_minute: []const u8 = "{}",
+        interval_hour_to_second: []const u8 = "{}",
+        interval_minute_to_second: []const u8 = "{}",
+        guid: []const u8 = "{}",
+    };
+
     const Column = struct {
         name: []const u8,
         data: []u8,
         indicator: c_longlong,
+        sql_type: odbc.Types.SqlType,
+
+        fn isNull(column: Column) bool {
+            return column.indicator == odbc.sys.SQL_NULL_DATA;
+        }
+
+        fn getData(column: *const Column) []u8 {
+            if (column.indicator == odbc.sys.SQL_NTS) {
+                const null_index = std.mem.indexOf(u8, &.{0}, column.data) orelse column.data.len;
+                if (null_index > column.data.len) {
+                    return column.data;
+                }
+                return column.data[0..null_index];
+            }
+
+            return column.data[0..@intCast(usize, column.indicator)];
+        }
     };
 
     columns: []Column,
@@ -157,34 +215,97 @@ pub const Row = struct {
 
     /// Get a value from a column using the column index. Column indices start from 1. Will attempt to
     /// convert whatever bytes are stored for the column into `ColumnType`.
-    pub fn getWithIndex(self: *Row, comptime ColumnType: type, column_index: usize) !ColumnType {
+    pub fn getWithIndex(self: *Row, comptime ColumnType: type, column_index: usize) error{InvalidNullValue}!ColumnType {
         const target_column = self.columns[column_index - 1];
 
-        if (target_column.indicator == odbc.sys.SQL_NULL_DATA) {
+        if (target_column.isNull()) {
             return switch (@typeInfo(ColumnType)) {
                 .Optional => null,
                 else => error.InvalidNullValue,
             };
         }
 
-        return switch (@typeInfo(ColumnType)) {
-            .Pointer => |info| switch (info.size) {
-                .Slice => blk: {
-                    const slice_length = if (target_column.indicator == odbc.sys.SQL_NTS)
-                        std.mem.indexOf(u8, target_column.data, &.{0x00}) orelse target_column.data.len
-                    else
-                        @intCast(usize, target_column.indicator);
+        const column_data = target_column.getData();
 
-                    if (slice_length > target_column.data.len) {
-                        break :blk error.InvalidString;
-                    }
+        if (@typeInfo(ColumnType) == .Pointer and @typeInfo(ColumnType).Pointer.size == .Slice) {
+            return column_data;
+        }
 
-                    break :blk target_column.data[0..slice_length];
-                },
-                else => sliceToValue(ColumnType, target_column.data[0..@intCast(usize, target_column.indicator)]),
+        return sliceToValue(ColumnType, column_data);
+    }
+
+    pub fn printColumn(row: *Row, column_name: []const u8, comptime format_options: FormatOptions, writer: anytype) !void {
+        const column_index = for (row.columns) |column, index| {
+            if (std.mem.eql(u8, column.name, column_name)) break index;
+        } else return error.ColumnNotFound;
+
+        try row.printColumnAtIndex(column_index + 1, format_options, writer);
+    }
+
+    pub fn printColumnAtIndex(row: *Row, column_index: usize, comptime format_options: FormatOptions, writer: anytype) !void {
+        const target_column = row.columns[column_index - 1];
+
+        if (target_column.isNull()) return;
+
+        const column_data = target_column.getData();
+
+        switch (target_column.sql_type) {
+            .Char => try writer.print(format_options.char, .{column_data[0]}),
+            .Varchar => try writer.print(format_options.varchar, .{column_data}),
+            .LongVarchar => try writer.print(format_options.long_varchar, .{column_data}),
+            .WChar => try writer.print(format_options.w_char, .{sliceToValue(u16, column_data)}),
+            .WVarchar => {
+                const utf8_column_data = sliceToValue([]u16, column_data);
+                for (utf8_column_data) |wchar| {
+                    try writer.print(format_options.w_varchar, .{wchar});
+                }
             },
-            else => sliceToValue(ColumnType, target_column.data[0..@intCast(usize, target_column.indicator)]),
-        };
+            .WLongVarchar => {
+                const utf8_column_data = sliceToValue([]u16, column_data);
+                for (utf8_column_data) |wchar| {
+                    try writer.print(format_options.w_varchar, .{wchar});
+                }
+            },
+            .Decimal => try writer.print(format_options.decimal, .{sliceToValue(f32, column_data)}),
+            .Float => try writer.print(format_options.float, .{sliceToValue(f32, column_data)}),
+            .Numeric => try writer.print(format_options.numeric, .{sliceToValue(CType.SqlNumeric, column_data)}),
+            .Real => try writer.print(format_options.real, .{sliceToValue(f64, column_data)}),
+            .Double => try writer.print(format_options.double, .{sliceToValue(f64, column_data)}),
+            .Bit => try writer.print(format_options.bit, .{column_data[0]}),
+            .TinyInt => try writer.print(format_options.tiny_int, .{sliceToValue(i8, column_data)}),
+            .SmallInt => try writer.print(format_options.small_int, .{sliceToValue(i16, column_data)}),
+            .Integer => try writer.print(format_options.integer, .{sliceToValue(i32, column_data)}),
+            .BigInt => try writer.print(format_options.big_int, .{sliceToValue(i64, column_data)}),
+            .Binary => try writer.print(format_options.binary, .{column_data[0]}),
+            .VarBinary => {
+                for (column_data) |c| {
+                    try writer.print(format_options.var_binary, .{c});
+                }
+            },
+            .LongVarBinary => {
+                for (column_data) |c| {
+                    try writer.print(format_options.long_var_binary, .{c});
+                }
+            },
+            .Date => try writer.print(format_options.date, .{sliceToValue(CType.SqlDate, column_data)}),
+            .Time => try writer.print(format_options.time, .{sliceToValue(CType.SqlTime, column_data)}),
+            .Timestamp => try writer.print(format_options.timestamp, .{sliceToValue(CType.SqlTimestamp, column_data)}),
+            .TimestampLtz => try writer.print(format_options.timestamp_ltz, .{sliceToValue(CType.SqlTimestamp, column_data)}),
+            .IntervalMonth => try writer.print(format_options.interval_month, .{sliceToValue(CType.Interval, column_data)}),
+            .IntervalYear => try writer.print(format_options.interval_year, .{sliceToValue(CType.Interval, column_data)}),
+            .IntervalYearToMonth => try writer.print(format_options.interval_year_to_month, .{sliceToValue(CType.Interval, column_data)}),
+            .IntervalDay => try writer.print(format_options.interval_day, .{sliceToValue(CType.Interval, column_data)}),
+            .IntervalHour => try writer.print(format_options.interval_hour, .{sliceToValue(CType.Interval, column_data)}),
+            .IntervalMinute => try writer.print(format_options.interval_minute, .{sliceToValue(CType.Interval, column_data)}),
+            .IntervalSecond => try writer.print(format_options.interval_second, .{sliceToValue(CType.Interval, column_data)}),
+            .IntervalDayToHour => try writer.print(format_options.interval_day_to_hour, .{sliceToValue(CType.Interval, column_data)}),
+            .IntervalDayToMinute => try writer.print(format_options.interval_day_to_minute, .{sliceToValue(CType.Interval, column_data)}),
+            .IntervalDayToSecond => try writer.print(format_options.interval_day_to_second, .{sliceToValue(CType.Interval, column_data)}),
+            .IntervalHourToMinute => try writer.print(format_options.interval_hour_to_minute, .{sliceToValue(CType.Interval, column_data)}),
+            .IntervalHourToSecond => try writer.print(format_options.interval_hour_to_second, .{sliceToValue(CType.Interval, column_data)}),
+            .IntervalMinuteToSecond => try writer.print(format_options.interval_minute_to_second, .{sliceToValue(CType.Interval, column_data)}),
+            .Guid => try writer.print(format_options.guid, .{sliceToValue(CType.SqlGuid, column_data)}),
+        }
     }
 };
 
@@ -421,6 +542,7 @@ pub const ResultSet = struct {
                                 const data_end_index = data_start_index + current_column.octet_length;
                                 row_column.data = current_column.data[data_start_index..data_end_index];
                                 row_column.indicator = current_column.indicator[self.current_row];
+                                row_column.sql_type = current_column.sql_type;
                             }
 
                             self.current_row += 1;
