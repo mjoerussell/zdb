@@ -46,9 +46,9 @@ pub const ParameterBucket = struct {
     param_indices: std.ArrayListUnmanaged(usize),
     indicators: []c_longlong,
 
-    allocator: *Allocator,
+    allocator: Allocator,
 
-    pub fn init(allocator: *Allocator, num_params: usize) !ParameterBucket {
+    pub fn init(allocator: Allocator, num_params: usize) !ParameterBucket {
         return ParameterBucket{
             .allocator = allocator,
             .data = try std.ArrayListAlignedUnmanaged(u8, null).initCapacity(allocator, num_params * 8),

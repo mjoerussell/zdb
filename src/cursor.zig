@@ -20,9 +20,9 @@ pub const Cursor = struct {
 
     connection: Connection,
     statement: Statement,
-    allocator: *Allocator,
+    allocator: Allocator,
 
-    pub fn init(allocator: *Allocator, connection: Connection) !Cursor {
+    pub fn init(allocator: Allocator, connection: Connection) !Cursor {
         return Cursor{
             .allocator = allocator,
             .connection = connection,

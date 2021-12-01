@@ -70,7 +70,7 @@ pub fn FetchResult(comptime Target: type) type {
             return struct {
                 pub const RowType = PrivateRowType;
 
-                pub fn toTarget(allocator: *Allocator, row: RowType) error{ InvalidNullValue, OutOfMemory }!Target {
+                pub fn toTarget(allocator: Allocator, row: RowType) error{ InvalidNullValue, OutOfMemory }!Target {
                     var item: Target = undefined;
                     inline for (std.meta.fields(Target)) |field| {
                         @setEvalBranchQuota(1_000_000);
@@ -193,13 +193,13 @@ pub const Row = struct {
 
     columns: []Column,
 
-    fn init(allocator: *Allocator, num_columns: usize) !Row {
+    fn init(allocator: Allocator, num_columns: usize) !Row {
         return Row{
             .columns = try allocator.alloc(Column, num_columns),
         };
     }
 
-    fn deinit(self: *Row, allocator: *Allocator) void {
+    fn deinit(self: *Row, allocator: Allocator) void {
         allocator.free(self.columns);
     }
 
@@ -339,12 +339,12 @@ pub const ResultSet = struct {
 
             is_first: bool = true,
 
-            allocator: *Allocator,
+            allocator: Allocator,
             statement: odbc.Statement,
 
             /// Initialze the ResultSet with the given `row_count`. `row_count` will control how many results
             /// are fetched every time `statement.fetch()` is called.
-            pub fn init(allocator: *Allocator, statement: odbc.Statement, row_count: usize) !Self {
+            pub fn init(allocator: Allocator, statement: odbc.Statement, row_count: usize) !Self {
                 var result: Self = undefined;
                 result.statement = statement;
                 result.allocator = allocator;
@@ -473,9 +473,9 @@ pub const ResultSet = struct {
         rows_fetched: usize = 0,
 
         statement: odbc.Statement,
-        allocator: *Allocator,
+        allocator: Allocator,
 
-        pub fn init(allocator: *Allocator, statement: odbc.Statement, row_count: usize) !RowIterator {
+        pub fn init(allocator: Allocator, statement: odbc.Statement, row_count: usize) !RowIterator {
             var result: RowIterator = undefined;
             result.statement = statement;
             result.allocator = allocator;
@@ -556,9 +556,9 @@ pub const ResultSet = struct {
     };
 
     statement: Statement,
-    allocator: *Allocator,
+    allocator: Allocator,
 
-    pub fn init(allocator: *Allocator, statement: Statement) ResultSet {
+    pub fn init(allocator: Allocator, statement: Statement) ResultSet {
         return ResultSet{
             .statement = statement,
             .allocator = allocator,
