@@ -9,6 +9,8 @@ const CType = odbc.Types.CType;
 const util = @import("util.zig");
 const sliceToValue = util.sliceToValue;
 
+const log = std.log.scoped(.result_set);
+
 /// Given a struct, generate a new struct that can be used for ODBC row-wise binding. The conversion goes
 /// roughly like this;
 /// ```
@@ -136,7 +138,7 @@ pub const Row = struct {
         w_varchar: []const u8 = "{u}",
         w_long_varchar: []const u8 = "{u}",
         decimal: []const u8 = "{d:.5}",
-        numeric: []const u8 = "{}",
+        numeric: []const u8 = "{d:.5}",
         small_int: []const u8 = "{}",
         integer: []const u8 = "{}",
         real: []const u8 = "{d:.5}",
@@ -187,7 +189,7 @@ pub const Row = struct {
                 return column.data[0..null_index];
             }
 
-            return column.data[0..@intCast(usize, column.indicator)];
+            return column.data;
         }
     };
 
@@ -268,7 +270,7 @@ pub const Row = struct {
             },
             .Decimal => try writer.print(format_options.decimal, .{sliceToValue(f32, column_data)}),
             .Float => try writer.print(format_options.float, .{sliceToValue(f32, column_data)}),
-            .Numeric => try writer.print(format_options.numeric, .{sliceToValue(CType.SqlNumeric, column_data)}),
+            .Numeric => try writer.print(format_options.numeric, .{sliceToValue(CType.SqlNumeric, column_data).toFloat(f64)}),
             .Real => try writer.print(format_options.real, .{sliceToValue(f64, column_data)}),
             .Double => try writer.print(format_options.double, .{sliceToValue(f64, column_data)}),
             .Bit => try writer.print(format_options.bit, .{column_data[0]}),
@@ -496,7 +498,14 @@ pub const ResultSet = struct {
                 column.sql_type = (try result.statement.getColumnAttribute(allocator, column_index + 1, .Type)).Type;
                 column.name = (try result.statement.getColumnAttribute(allocator, column_index + 1, .BaseColumnName)).BaseColumnName;
 
-                column.octet_length = @intCast(usize, (try result.statement.getColumnAttribute(allocator, column_index + 1, .OctetLength)).OctetLength);
+                column.octet_length = if (result.statement.getColumnAttribute(allocator, column_index + 1, .OctetLength)) |attr|
+                    @intCast(usize, attr.OctetLength)
+                else |_| 0;
+
+                if (column.octet_length == 0) {
+                    const length = (try result.statement.getColumnAttribute(allocator, column_index + 1, .Length)).Length;
+                    column.octet_length = @intCast(usize, length);
+                }
 
                 column.data = try allocator.alloc(u8, row_count * column.octet_length);
                 column.indicator = try allocator.alloc(c_longlong, row_count);
@@ -538,6 +547,7 @@ pub const ResultSet = struct {
                             for (self.row.columns) |*row_column, column_index| {
                                 const current_column = self.columns[column_index];
                                 row_column.name = current_column.name;
+
                                 const data_start_index = self.current_row * current_column.octet_length;
                                 const data_end_index = data_start_index + current_column.octet_length;
                                 row_column.data = current_column.data[data_start_index..data_end_index];
@@ -556,20 +566,18 @@ pub const ResultSet = struct {
     };
 
     statement: Statement,
-    allocator: Allocator,
 
-    pub fn init(allocator: Allocator, statement: Statement) ResultSet {
+    pub fn init(statement: Statement) ResultSet {
         return ResultSet{
             .statement = statement,
-            .allocator = allocator,
         };
     }
 
-    pub fn itemIterator(result_set: ResultSet, comptime ItemType: type) !ItemIterator(ItemType) {
-        return try ItemIterator(ItemType).init(result_set.allocator, result_set.statement, 10);
+    pub fn itemIterator(result_set: ResultSet, comptime ItemType: type, allocator: Allocator) !ItemIterator(ItemType) {
+        return try ItemIterator(ItemType).init(allocator, result_set.statement, 10);
     }
 
-    pub fn rowIterator(result_set: ResultSet) !RowIterator {
-        return try RowIterator.init(result_set.allocator, result_set.statement, 10);
+    pub fn rowIterator(result_set: ResultSet, allocator: Allocator) !RowIterator {
+        return try RowIterator.init(allocator, result_set.statement, 10);
     }
 };

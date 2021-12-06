@@ -20,11 +20,9 @@ pub const Cursor = struct {
 
     connection: Connection,
     statement: Statement,
-    allocator: Allocator,
 
-    pub fn init(allocator: Allocator, connection: Connection) !Cursor {
+    pub fn init(connection: Connection) !Cursor {
         return Cursor{
-            .allocator = allocator,
             .connection = connection,
             .statement = try Statement.init(connection),
         };
@@ -46,8 +44,7 @@ pub const Cursor = struct {
 
     /// Execute a SQL statement and return the result set. SQL query parameters can be passed with the `parameters` argument. 
     /// This is the fastest way to execute a SQL statement once.
-    // pub fn executeDirect(self: *Cursor, comptime ResultType: type, parameters: anytype, sql_statement: []const u8) !ResultSet(ResultType) {
-    pub fn executeDirect(self: *Cursor, sql_statement: []const u8, parameters: anytype) !ResultSet {
+    pub fn executeDirect(cursor: *Cursor, allocator: Allocator, sql_statement: []const u8, parameters: anytype) !ResultSet {
         var num_params: usize = 0;
         for (sql_statement) |c| {
             if (c == '?') num_params += 1;
@@ -55,17 +52,17 @@ pub const Cursor = struct {
 
         if (num_params != parameters.len) return error.InvalidNumParams;
 
-        self.clearParameters();
-        self.parameters = try ParameterBucket.init(self.allocator, num_params);
+        cursor.clearParameters();
+        cursor.parameters = try ParameterBucket.init(allocator, num_params);
         defer {
-            self.parameters.?.deinit();
-            self.parameters = null;
+            cursor.parameters.?.deinit();
+            cursor.parameters = null;
         }
 
         inline for (parameters) |param, index| {
-            const stored_param = try self.parameters.?.addParameter(index, param);
+            const stored_param = try cursor.parameters.?.addParameter(index, param);
             const sql_param = sql_parameter.default(param);
-            try self.statement.bindParameter(
+            try cursor.statement.bindParameter(
                 @intCast(u16, index + 1),
                 .Input,
                 sql_param.c_type,
@@ -76,33 +73,39 @@ pub const Cursor = struct {
             );
         }
 
-        _ = try self.statement.executeDirect(sql_statement);
+        _ = try cursor.statement.executeDirect(sql_statement);
 
-        // return try ResultSet(ResultType).init(self.allocator, self.statement, 10);
-        return ResultSet.init(self.allocator, self.statement);
+        return ResultSet.init(cursor.statement);
     }
 
     /// Execute a statement and return the result set. A statement must have been prepared previously
     /// using `Cursor.prepare()`.
-    // pub fn execute(self: *Cursor, comptime ResultType: type) !ResultSet(ResultType) {
-    pub fn execute(self: *Cursor) !ResultSet {
-        // _ = try self.statement.execute();
-        try self.statement.execute();
-        // return try ResultSet(ResultType).init(self.allocator, self.statement, 10);
-        return try ResultSet.init(self.allocator, self.statement);
+    pub fn execute(cursor: *Cursor) !ResultSet {
+        try cursor.statement.execute();
+        return try ResultSet.init(cursor.statement);
     }
 
     /// Prepare a SQL statement for execution. If you want to execute a statement multiple times,
     /// preparing it first is much faster because you only have to compile and load the statement
     /// once on the driver/DBMS. Use `Cursor.execute()` to get the results.
-    pub fn prepare(self: *Cursor, parameters: anytype, sql_statement: []const u8) !void {
-        try self.bindParameters(parameters);
-        try self.statement.prepare(sql_statement);
+    ///
+    /// If you don't want to set the paramters here, that's fine. You can pass `.{}` and use `cursor.bindParameter` or
+    /// `cursor.bindParameters` later before executing the statement.
+    pub fn prepare(cursor: *Cursor, sql_statement: []const u8, parameters: anytype) !void {
+        try cursor.bindParameters(parameters);
+        try cursor.statement.prepare(sql_statement);
     }
 
-    // pub fn insert(self: *Cursor, comptime DataType: type, comptime table_name: []const u8, values: []const DataType) !usize {
-    pub fn insert(self: *Cursor, comptime DataType: type, comptime insert_statement: []const u8, values: []const DataType) !usize {
+    pub fn insert(cursor: *Cursor, allocator: Allocator, comptime insert_statement: []const u8, values: anytype) !usize {
         // @todo Try using arrays of parameters for bulk ops
+        const DataType = switch (@typeInfo(@TypeOf(values))) {
+            .Pointer => |info| switch (info.size) {
+                .Slice => info.child,
+                else => @compileError("values must be a slice or array type"),
+            },
+            .Array => |info| info.child,
+            else => @compileError("values must be a slice or array type"),
+        };
         AssertInsertable(DataType);
 
         const num_params = blk: {
@@ -113,8 +116,8 @@ pub const Cursor = struct {
             break :blk count;
         };
 
-        try self.prepare(.{}, insert_statement);
-        self.parameters = try ParameterBucket.init(self.allocator, num_params);
+        try cursor.prepare(insert_statement, .{});
+        cursor.parameters = try ParameterBucket.init(allocator, num_params);
 
         var num_rows_inserted: usize = 0;
 
@@ -124,12 +127,12 @@ pub const Cursor = struct {
                     .Slice => {
                         if (value.len < num_params) return error.WrongParamCount;
                         for (value) |param, param_index| {
-                            try self.bindParameter(param_index + 1, param);
+                            try cursor.bindParameter(param_index + 1, param);
                         }
                     },
                     .One => {
                         if (num_params != 1) return error.WrongParamCount;
-                        try self.bindParameter(value_index + 1, value.*);
+                        try cursor.bindParameter(value_index + 1, value.*);
                     },
                     else => unreachable,
                 },
@@ -137,40 +140,40 @@ pub const Cursor = struct {
                     comptime if (struct_tag.fields.len != num_params)
                         @compileError("Struct type " ++ @typeName(DataType) ++ " cannot be inserted as it has the wrong number of fields.");
                     inline for (std.meta.fields(DataType)) |field, param_index| {
-                        try self.bindParameter(param_index + 1, @field(value, field.name));
+                        try cursor.bindParameter(param_index + 1, @field(value, field.name));
                     }
                 },
                 .Array => |array_tag| {
                     comptime if (array_tag.len != num_params) @compileError("Array type " ++ @typeName(DataType) ++ " cannot be inserted because it has the wrong length");
                     for (value) |val, param_index| {
-                        try self.bindParameter(param_index + 1, val);
+                        try cursor.bindParameter(param_index + 1, val);
                     }
                 },
                 .Optional => {
                     comptime if (num_params != 1) @compileError("Cannot insert Optional type - statement only has one parameter.");
-                    try self.bindParameter(value_index + 1, value);
+                    try cursor.bindParameter(value_index + 1, value);
                 },
                 .Enum => {
                     comptime if (num_params != 1) @compileError("Cannot insert Enum type - statement only has one parameter.");
                     const enum_value = @enumToInt(value);
-                    try self.bindParameter(value_index + 1, enum_value);
+                    try cursor.bindParameter(value_index + 1, enum_value);
                 },
                 .EnumLiteral => {
                     comptime if (num_params != 1) @compileError("Cannot insert EnumLiteral type - statement only has one parameter.");
-                    try self.bindParameter(value_index + 1, @tagName(value));
+                    try cursor.bindParameter(value_index + 1, @tagName(value));
                 },
                 .Int, .Float, .ComptimeInt, .ComptimeFloat, .Bool => {
                     comptime if (num_params != 1) @compileError("Cannot insert " ++ @typeName(DataType) ++ " type - statement only has one parameter.");
-                    try self.bindParameter(value_index + 1, value);
+                    try cursor.bindParameter(value_index + 1, value);
                 },
                 else => unreachable,
             }
 
-            self.statement.execute() catch |err| {
+            cursor.statement.execute() catch |err| {
                 std.log.err("{s}", .{@errorName(err)});
                 return err;
             };
-            num_rows_inserted += try self.statement.rowCount();
+            num_rows_inserted += try cursor.statement.rowCount();
         }
 
         return num_rows_inserted;
@@ -190,14 +193,14 @@ pub const Cursor = struct {
         try self.connection.endTransaction(.rollback);
     }
 
-    pub fn columns(cursor: *Cursor, catalog_name: ?[]const u8, schema_name: ?[]const u8, table_name: []const u8) ![]Column {
+    pub fn columns(cursor: *Cursor, allocator: Allocator, catalog_name: ?[]const u8, schema_name: ?[]const u8, table_name: []const u8) ![]Column {
         try cursor.statement.columns(catalog_name, schema_name, table_name, null);
-        var result_set = ResultSet.init(cursor.allocator, cursor.statement);
+        var result_set = ResultSet.init(allocator, cursor.statement);
 
         var column_iter = try result_set.itemIterator(Column);
         defer column_iter.deinit();
 
-        var column_result = std.ArrayList(Column).init(cursor.allocator);
+        var column_result = std.ArrayList(Column).init(allocator);
         errdefer column_result.deinit();
 
         while (true) {
@@ -209,14 +212,14 @@ pub const Cursor = struct {
         return column_result.toOwnedSlice();
     }
 
-    pub fn tables(cursor: *Cursor, catalog_name: ?[]const u8, schema_name: ?[]const u8) ![]Table {
+    pub fn tables(cursor: *Cursor, allocator: Allocator, catalog_name: ?[]const u8, schema_name: ?[]const u8) ![]Table {
         try cursor.statement.tables(catalog_name, schema_name, null, null);
-        var result_set = ResultSet.init(cursor.allocator, cursor.statement);
+        var result_set = ResultSet.init(allocator, cursor.statement);
 
         var table_iter = try result_set.itemIterator(Table);
         defer table_iter.deinit();
 
-        var table_result = std.ArrayList(Table).init(cursor.allocator);
+        var table_result = std.ArrayList(Table).init(allocator);
         errdefer table_result.deinit();
 
         while (true) {
@@ -228,14 +231,14 @@ pub const Cursor = struct {
         return table_result.toOwnedSlice();
     }
 
-    pub fn tablePrivileges(cursor: *Cursor, catalog_name: ?[]const u8, schema_name: ?[]const u8, table_name: []const u8) ![]TablePrivileges {
+    pub fn tablePrivileges(cursor: *Cursor, allocator: Allocator, catalog_name: ?[]const u8, schema_name: ?[]const u8, table_name: []const u8) ![]TablePrivileges {
         try cursor.statement.tablePrivileges(catalog_name, schema_name, table_name);
-        var result_set = ResultSet.init(cursor.allocator, cursor.statement);
+        var result_set = ResultSet.init(allocator, cursor.statement);
 
         var priv_iter = try result_set.itemIterator(TablePrivileges);
         defer priv_iter.deinit();
 
-        var priv_result = std.ArrayList(TablePrivileges).init(cursor.allocator);
+        var priv_result = std.ArrayList(TablePrivileges).init(allocator);
         errdefer priv_result.deinit();
 
         while (true) {
@@ -270,25 +273,25 @@ pub const Cursor = struct {
     ///
     /// Calling this function clears all existing parameters, and if an empty list is passed in 
     /// will not re-initialize them.
-    pub fn bindParameters(self: *Cursor, parameters: anytype) !void {
-        self.clearParameters();
+    pub fn bindParameters(cursor: *Cursor, allocator: Allocator, parameters: anytype) !void {
+        cursor.clearParameters();
         if (parameters.len > 0) {
-            self.parameters = try ParameterBucket.init(self.allocator, parameters.len);
+            cursor.parameters = try ParameterBucket.init(allocator, parameters.len);
         }
 
         inline for (parameters) |param, index| {
-            try self.bindParameter(index + 1, param);
+            try cursor.bindParameter(index + 1, param);
         }
     }
 
     /// Deinitialize any parameters allocated on this statement (if any), and reset `self.parameters` to null.
-    fn clearParameters(self: *Cursor) void {
-        if (self.parameters) |*p| p.deinit();
-        self.parameters = null;
+    fn clearParameters(cursor: *Cursor) void {
+        if (cursor.parameters) |*p| p.deinit();
+        cursor.parameters = null;
     }
 
-    pub fn getErrors(self: *Cursor) []odbc.Error.DiagnosticRecord {
-        return self.statement.getDiagnosticRecords(self.allocator) catch return &[_]odbc.Error.DiagnosticRecord{};
+    pub fn getErrors(cursor: *Cursor, allocator: Allocator) []odbc.Error.DiagnosticRecord {
+        return cursor.statement.getDiagnosticRecords(allocator) catch return &[_]odbc.Error.DiagnosticRecord{};
     }
 };
 

@@ -182,8 +182,8 @@ pub const DBConnection = struct {
         try self.connection.setAttribute(.{ .Autocommit = mode == .auto });
     }
 
-    pub fn getCursor(self: *DBConnection, allocator: Allocator) !Cursor {
-        return try Cursor.init(allocator, self.connection);
+    pub fn getCursor(self: *DBConnection) !Cursor {
+        return try Cursor.init(self.connection);
     }
 };
 
