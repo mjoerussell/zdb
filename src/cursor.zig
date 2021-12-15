@@ -195,9 +195,9 @@ pub const Cursor = struct {
 
     pub fn columns(cursor: *Cursor, allocator: Allocator, catalog_name: ?[]const u8, schema_name: ?[]const u8, table_name: []const u8) ![]Column {
         try cursor.statement.columns(catalog_name, schema_name, table_name, null);
-        var result_set = ResultSet.init(allocator, cursor.statement);
+        var result_set = ResultSet.init(cursor.statement);
 
-        var column_iter = try result_set.itemIterator(Column);
+        var column_iter = try result_set.itemIterator(Column, allocator);
         defer column_iter.deinit();
 
         var column_result = std.ArrayList(Column).init(allocator);

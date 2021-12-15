@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const odbc = @import("odbc");
 
 const db_connection = @import("connection.zig");
-const DBConnection = db_connection.DBConnection;
+const Connection = db_connection.Connection;
 const ConnectionInfo = db_connection.ConnectionInfo;
 
 const Row = @import("result_set.zig").Row;
@@ -33,12 +33,14 @@ pub fn main() !void {
     const connection_string = try connection_info.toConnectionString(allocator);
     defer allocator.free(connection_string);
 
-    var connection = try DBConnection.initWithConnectionString(connection_string);
+    var connection = try Connection.init(.{});
     defer connection.deinit();
+
+    try connection.connectExtended(connection_string);
 
     try connection.setCommitMode(.manual);
 
-    var cursor = try connection.getCursor(allocator);
+    var cursor = try connection.getCursor();
     defer cursor.deinit() catch {};
 
     // _ = try cursor.insert(
@@ -63,7 +65,7 @@ pub fn main() !void {
     //     \\WHERE name = ? OR age < ?
     // );
 
-    var result_set = try cursor.executeDirect("select * from odbc_zig_test", .{});
+    var result_set = try cursor.executeDirect(allocator, "select * from odbc_zig_test", .{});
 
     // var result_iter = try result_set.itemIterator(OdbcTestType);
     // defer result_iter.deinit();
@@ -76,7 +78,7 @@ pub fn main() !void {
     //     result.deinit(allocator);
     // }
 
-    var result_iter = try result_set.rowIterator();
+    var result_iter = try result_set.rowIterator(allocator);
     defer result_iter.deinit();
 
     var stdout_writer = std.io.getStdOut().writer();
@@ -115,7 +117,7 @@ pub fn main() !void {
     //     std.debug.print("{}\n", .{table});
     //     table.deinit(allocator);
     // }
-    const table_columns = try cursor.columns("zig-test", "public", "odbc_zig_test");
+    const table_columns = try cursor.columns(allocator, "zig-test", "public", "odbc_zig_test");
     defer allocator.free(table_columns);
 
     for (table_columns) |*column| {

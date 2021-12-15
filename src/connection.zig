@@ -97,10 +97,8 @@ pub const ConnectionInfo = struct {
         var attribute_iter = self.attributes.iterator();
         while (attribute_iter.next()) |entry| {
             _ = try string_builder.writer().write(entry.key_ptr.*);
-            // _ = try string_builder.writer().write(entry.key);
             _ = try string_builder.writer().write("=");
             _ = try string_builder.writer().write(entry.value_ptr.*);
-            // _ = try string_builder.writer().write(entry.value);
             _ = try string_builder.writer().write(";");
         }
 
@@ -137,52 +135,45 @@ pub const ConnectionInfo = struct {
     }
 };
 
-pub const DBConnection = struct {
+pub const Connection = struct {
+    pub const ConnectConfig = struct {
+        version: odbc.Types.EnvironmentAttributeValue.OdbcVersion = .Odbc3,
+    };
+
     environment: odbc.Environment,
     connection: odbc.Connection,
 
-    pub fn init(server_name: []const u8, username: []const u8, password: []const u8) !DBConnection {
-        var result: DBConnection = undefined;
+    pub fn init(config: ConnectConfig) !Connection {
+        var connection: Connection = undefined;
 
-        result.environment = odbc.Environment.init() catch return error.EnvironmentError;
-        errdefer result.environment.deinit() catch {};
+        connection.environment = try odbc.Environment.init();
+        errdefer connection.environment.deinit() catch {};
 
-        result.environment.setOdbcVersion(.Odbc3) catch return error.EnvironmentError;
+        try connection.environment.setOdbcVersion(config.version);
 
-        result.connection = odbc.Connection.init(&result.environment) catch return error.ConnectionError;
-        errdefer result.connection.deinit() catch {};
-
-        try result.connection.connect(server_name, username, password);
-
-        return result;
+        connection.connection = try odbc.Connection.init(&connection.environment);
+        
+        return connection;
     }
 
-    pub fn initWithConnectionString(connection_string: []const u8) !DBConnection {
-        var result: DBConnection = undefined;
-
-        result.environment = odbc.Environment.init() catch return error.EnvironmentError;
-        errdefer result.environment.deinit() catch {};
-
-        result.environment.setOdbcVersion(.Odbc3) catch return error.EnvironmentError;
-
-        result.connection = odbc.Connection.init(&result.environment) catch return error.ConnectionError;
-        errdefer result.connection.deinit() catch {};
-
-        try result.connection.connectExtended(connection_string, .NoPrompt);
-
-        return result;
+    pub fn connect(conn: *Connection, server_name: []const u8, username: []const u8, password: []const u8) !void {
+        try conn.connection.connect(server_name, username, password);
     }
 
-    pub fn deinit(self: *DBConnection) void {
+    pub fn connectExtended(conn: *Connection, connection_string: []const u8) !void {
+        try conn.connection.connectExtended(connection_string, .NoPrompt);
+    }
+
+    pub fn deinit(self: *Connection) void {
         self.connection.deinit() catch {};
         self.environment.deinit() catch {};
     }
 
-    pub fn setCommitMode(self: *DBConnection, mode: CommitMode) !void {
+    pub fn setCommitMode(self: *Connection, mode: CommitMode) !void {
         try self.connection.setAttribute(.{ .Autocommit = mode == .auto });
     }
 
-    pub fn getCursor(self: *DBConnection) !Cursor {
+    pub fn getCursor(self: *Connection) !Cursor {
         return try Cursor.init(self.connection);
     }
 };

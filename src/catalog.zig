@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const odbc = @import("odbc");
 
+/// Used for fetching column metadata from a database. Supports formatted printing by default.
 pub const Column = struct {
     table_category: ?[]const u8,
     table_schema: ?[]const u8,
@@ -54,6 +55,7 @@ pub const Column = struct {
     }
 };
 
+/// Used for fetching table metadata from a database. Supports formatted printing by default.
 pub const Table = struct {
     catalog: ?[]const u8,
     schema: ?[]const u8,
@@ -89,6 +91,7 @@ pub const Table = struct {
     }
 };
 
+/// Used for fetching table privilege metadata from databases. Supports formatted printing by default.
 pub const TablePrivileges = struct {
     category: ?[]const u8,
     schema: ?[]const u8,
