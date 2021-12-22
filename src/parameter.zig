@@ -7,7 +7,7 @@ const EraseComptime = @import("util.zig").EraseComptime;
 /// This struct contains the information necessary to communicate with the ODBC driver
 /// about the type of a value. `sql_type` is often used to tell the driver how to convert
 /// the value into one that SQL will understand, whereas `c_type` is generally used so that
-/// the driver has a way to convert a `*c_void` or `[]u8` into a value.
+/// the driver has a way to convert a `*anyopaque` or `[]u8` into a value.
 pub fn SqlParameter(comptime T: type) type {
     return struct {
         sql_type: odbc.Types.SqlType,
@@ -38,7 +38,7 @@ pub fn default(value: anytype) SqlParameter(EraseComptime(@TypeOf(value))) {
 
 pub const ParameterBucket = struct {
     pub const Param = struct {
-        param: *c_void,
+        param: *anyopaque,
         indicator: *c_longlong,
     };
 
@@ -80,7 +80,7 @@ pub const ParameterBucket = struct {
         }
         
         return Param{
-            .param = @ptrCast(*c_void, &self.data.items[param_index]),
+            .param = @ptrCast(*anyopaque, &self.data.items[param_index]),
             .indicator = &self.indicators[index]
         };
     }
