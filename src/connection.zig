@@ -28,14 +28,14 @@ pub const ConnectionInfo = struct {
 
     /// Initialize a blank `ConnectionInfo` struct with an initialized `attributes` hash map
     /// and arena allocator.
-    pub fn init(allocator: *Allocator) ConnectionInfo {
+    pub fn init(allocator: Allocator) ConnectionInfo {
         return .{ 
             .attributes = std.StringHashMap([]const u8).init(allocator),
         };
     }
 
     /// Initialize a `ConnectionInfo` using the information provided in the config data.
-    pub fn initWithConfig(allocator: *Allocator, config: Config) !ConnectionInfo {
+    pub fn initWithConfig(allocator: Allocator, config: Config) !ConnectionInfo {
         var connection_info = ConnectionInfo.init(allocator);
         if (config.driver) |driver| try connection_info.setDriver(driver);
         if (config.dsn) |dsn| try connection_info.setDSN(dsn);
@@ -89,7 +89,7 @@ pub const ConnectionInfo = struct {
         return self.getAttribute("DSN");
     }
 
-    pub fn toConnectionString(self: *ConnectionInfo, allocator: *Allocator) ![]const u8 {
+    pub fn toConnectionString(self: *ConnectionInfo, allocator: Allocator) ![]const u8 {
         var string_builder = std.ArrayList(u8).init(allocator);
         errdefer string_builder.deinit();
         
@@ -108,7 +108,7 @@ pub const ConnectionInfo = struct {
         return string_builder.toOwnedSlice();
     }
 
-    pub fn fromConnectionString(allocator: *Allocator, conn_str: []const u8) !ConnectionInfo {
+    pub fn fromConnectionString(allocator: Allocator, conn_str: []const u8) !ConnectionInfo {
         var conn_info = ConnectionInfo.init(allocator);
 
         var attr_start: usize = 0;
@@ -183,7 +183,7 @@ pub const DBConnection = struct {
         try self.connection.setAttribute(.{ .Autocommit = mode == .auto });
     }
 
-    pub fn getCursor(self: *DBConnection, allocator: *Allocator) !Cursor {
+    pub fn getCursor(self: *DBConnection, allocator: Allocator) !Cursor {
         return try Cursor.init(allocator, self.connection);
     }
 
