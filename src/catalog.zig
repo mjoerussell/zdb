@@ -23,7 +23,7 @@ pub const Column = struct {
     ordinal_position: u32,
     is_nullable: ?[]const u8,
 
-    pub fn deinit(self: *Column, allocator: *Allocator) void {
+    pub fn deinit(self: *Column, allocator: Allocator) void {
         if (self.table_category) |tc| allocator.free(tc);
         if (self.table_schema) |ts| allocator.free(ts);
         allocator.free(self.table_name);
@@ -61,7 +61,7 @@ pub const Table = struct {
     table_type: ?[]const u8,
     remarks: ?[]const u8,
 
-    pub fn deinit(self: *Table, allocator: *Allocator) void {
+    pub fn deinit(self: *Table, allocator: Allocator) void {
         if (self.catalog) |cat| allocator.free(cat);
         if (self.schema) |schema| allocator.free(schema);
         if (self.name) |name| allocator.free(name);
@@ -98,7 +98,7 @@ pub const TablePrivileges = struct {
     privilege: []const u8,
     is_grantable: ?[]const u8,
 
-    pub fn deinit(self: *TablePrivileges, allocator: *Allocator) void {
+    pub fn deinit(self: *TablePrivileges, allocator: Allocator) void {
         if (self.category) |category| allocator.free(category);
         if (self.schema) |schema| allocator.free(schema);
         if (self.grantor) |grantor| allocator.free(grantor);

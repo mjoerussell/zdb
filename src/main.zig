@@ -15,7 +15,7 @@ const OdbcTestType = struct {
     occupation: []const u8,
     age: u32,
 
-    fn deinit(self: *OdbcTestType, allocator: *Allocator) void {
+    fn deinit(self: *OdbcTestType, allocator: Allocator) void {
         allocator.free(self.name);
         allocator.free(self.occupation);
     }
@@ -28,7 +28,7 @@ const OdbcTestType = struct {
 //         job_name: []const u8
 //     },
 
-//     pub fn fromRow(row: *Row, allocator: *Allocator) !OdbcTestType {
+//     pub fn fromRow(row: *Row, allocator: Allocator) !OdbcTestType {
 //         var result: OdbcTestType = undefined;
 //         result.name = try row.get([]const u8, allocator, "name");
         
@@ -40,7 +40,7 @@ const OdbcTestType = struct {
 //         return result;
 //     }
 
-//     fn deinit(self: *OdbcTestType, allocator: *Allocator) void {
+//     fn deinit(self: *OdbcTestType, allocator: Allocator) void {
 //         allocator.free(self.name);
 //         allocator.free(self.age);
 //         allocator.free(self.job_info.job_name);
@@ -51,7 +51,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    const allocator = &gpa.allocator;
+    const allocator = gpa.allocator();
 
     var connection_info = try ConnectionInfo.initWithConfig(allocator, .{
         .driver = "PostgreSQL Unicode(x64)",

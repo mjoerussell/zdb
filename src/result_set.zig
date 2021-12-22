@@ -74,7 +74,7 @@ pub fn FetchResult(comptime Target: type) type {
             return struct {
                 pub const RowType = PrivateRowType;
 
-                pub fn toTarget(allocator: *Allocator, row: RowType) !Target {
+                pub fn toTarget(allocator: Allocator, row: RowType) !Target {
                     var item: Target = undefined;
                     inline for (std.meta.fields(Target)) |field| {
                         @setEvalBranchQuota(1_000_000);
@@ -151,12 +151,12 @@ fn RowBindingResultSet(comptime Base: type) type {
 
         is_first: bool = true,
 
-        allocator: *Allocator,
+        allocator: Allocator,
         statement: odbc.Statement,
 
         /// Initialze the ResultSet with the given `row_count`. `row_count` will control how many results
         /// are fetched every time `statement.fetch()` is called.
-        pub fn init(allocator: *Allocator, statement: odbc.Statement, row_count: usize) !Self {
+        pub fn init(allocator: Allocator, statement: odbc.Statement, row_count: usize) !Self {
             var result: Self = undefined;
             result.statement = statement;
             result.allocator = allocator;
@@ -204,10 +204,8 @@ fn RowBindingResultSet(comptime Base: type) type {
 
             while (true) {
                 if (self.current_row >= self.rows_fetched) {
-                    self.statement.fetch() catch |err| switch (err) {
-                        error.NoData => return null,
-                        else => return err
-                    };
+                    const found_data = try self.statement.fetch();
+                    if (!found_data) return null;
                     self.current_row = 0;
                 }
 
@@ -286,19 +284,19 @@ pub const Row = struct {
 
     columns: []Column,
 
-    fn init(allocator: *Allocator, num_columns: usize) !Row {
+    fn init(allocator: Allocator, num_columns: usize) !Row {
         return Row{
             .columns = try allocator.alloc(Column, num_columns),
         };
     }
 
-    fn deinit(self: *Row, allocator: *Allocator) void {
+    fn deinit(self: *Row, allocator: Allocator) void {
         allocator.free(self.columns);
     }
 
     /// Get a value from a column using the column name. Will attempt to convert whatever bytes
     /// are stored for the column into `ColumnType`.
-    pub fn get(self: *Row, comptime ColumnType: type, allocator: *Allocator, column_name: []const u8) !ColumnType {
+    pub fn get(self: *Row, comptime ColumnType: type, allocator: Allocator, column_name: []const u8) !ColumnType {
         const column_index = for (self.columns) |column, index| {
             if (std.mem.eql(u8, column.name, column_name)) break index;
         } else return error.ColumnNotFound;
@@ -308,7 +306,7 @@ pub const Row = struct {
 
     /// Get a value from a column using the column index. Column indices start from 1. Will attempt to
     /// convert whatever bytes are stored for the column into `ColumnType`.
-    pub fn getWithIndex(self: *Row, comptime ColumnType: type, allocator: *Allocator, column_index: usize) !ColumnType {
+    pub fn getWithIndex(self: *Row, comptime ColumnType: type, allocator: Allocator, column_index: usize) !ColumnType {
         const target_column = self.columns[column_index - 1];
 
         if (target_column.indicator == odbc.sys.SQL_NULL_DATA) {
@@ -365,9 +363,9 @@ fn ColumnBindingResultSet(comptime Base: type) type {
         rows_fetched: usize = 0,
 
         statement: odbc.Statement,
-        allocator: *Allocator,
+        allocator: Allocator,
 
-        pub fn init(allocator: *Allocator, statement: odbc.Statement, row_count: usize) !Self {
+        pub fn init(allocator: Allocator, statement: odbc.Statement, row_count: usize) !Self {
             var result: Self = undefined;
             result.statement = statement;
             result.allocator = allocator;
