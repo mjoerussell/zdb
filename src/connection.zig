@@ -3,9 +3,6 @@ const Allocator = std.mem.Allocator;
 
 const odbc = @import("odbc");
 
-const ResultSet = @import("result_set.zig").ResultSet;
-const FetchResult = @import("result_set.zig").FetchResult;
-
 const Cursor = @import("Cursor.zig");
 
 pub const CommitMode = enum(u1) { auto, manual };

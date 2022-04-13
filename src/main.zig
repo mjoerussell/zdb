@@ -7,8 +7,6 @@ const db_connection = @import("connection.zig");
 const Connection = db_connection.Connection;
 const ConnectionInfo = db_connection.ConnectionInfo;
 
-const Row = @import("result_set.zig").Row;
-
 const OdbcTestType = struct {
     id: u32,
     name: []const u8,

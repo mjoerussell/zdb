@@ -6,8 +6,7 @@ const Statement = odbc.Statement;
 const Connection = odbc.Connection;
 
 const ParameterBucket = @import("ParameterBucket.zig");
-
-const ResultSet = @import("result_set.zig").ResultSet;
+const ResultSet = @import("ResultSet.zig");
 
 const catalog_types = @import("catalog.zig");
 const Column = catalog_types.Column;

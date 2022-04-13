@@ -11,6 +11,8 @@ const sliceToValue = util.sliceToValue;
 
 const log = std.log.scoped(.result_set);
 
+const ResultSet = @This();
+
 /// Given a struct, generate a new struct that can be used for ODBC row-wise binding. The conversion goes
 /// roughly like this;
 /// ```
@@ -327,208 +329,65 @@ fn ReturnType(comptime T: type) type {
     }
 }
 
-pub const ResultSet = struct {
-    fn ItemIterator(comptime ItemType: type) type {
-        return struct {
-            pub const Self = @This();
-            pub const RowType = FetchResult(ItemType).RowType;
+fn ItemIterator(comptime ItemType: type) type {
+    return struct {
+        pub const Self = @This();
+        pub const RowType = FetchResult(ItemType).RowType;
 
-            rows: []RowType,
-            row_status: []RowStatus,
-
-            rows_fetched: usize = 0,
-            current_row: usize = 0,
-
-            is_first: bool = true,
-
-            allocator: Allocator,
-            statement: odbc.Statement,
-
-            /// Initialze the ResultSet with the given `row_count`. `row_count` will control how many results
-            /// are fetched every time `statement.fetch()` is called.
-            pub fn init(allocator: Allocator, statement: odbc.Statement, row_count: usize) !Self {
-                var result: Self = undefined;
-                result.statement = statement;
-                result.allocator = allocator;
-                result.rows_fetched = 0;
-                result.current_row = 0;
-                result.is_first = true;
-
-                result.rows = try allocator.alloc(RowType, row_count);
-                result.row_status = try allocator.alloc(RowStatus, row_count);
-
-                try result.statement.setAttribute(.{ .RowBindType = @sizeOf(RowType) });
-                try result.statement.setAttribute(.{ .RowArraySize = row_count });
-                try result.statement.setAttribute(.{ .RowStatusPointer = result.row_status });
-
-                try result.bindColumns();
-
-                return result;
-            }
-
-            pub fn deinit(self: *Self) void {
-                self.allocator.free(self.rows);
-                self.allocator.free(self.row_status);
-            }
-
-            /// Keep fetching until all results have been retrieved.
-            pub fn getAllRows(self: *Self) ![]ItemType {
-                var results = try std.ArrayList(ItemType).initCapacity(self.allocator, 20);
-                errdefer results.deinit();
-
-                while (try self.next()) |item| {
-                    try results.append(item);
-                }
-
-                return results.toOwnedSlice();
-            }
-
-            /// Get the next available row. If all current rows have been read, this will attempt to
-            /// fetch more results with `statement.fetch()`. If `statement.fetch()` returns `error.NoData`,
-            /// this will return `null`.
-            pub fn next(self: *Self) !?ItemType {
-                if (self.is_first) {
-                    try self.statement.setAttribute(.{ .RowsFetchedPointer = &self.rows_fetched });
-                    self.is_first = false;
-                }
-
-                while (true) {
-                    if (self.current_row >= self.rows_fetched) {
-                        const has_data = try self.statement.fetch();
-                        if (!has_data) return null;
-                        self.current_row = 0;
-                    }
-
-                    item_loop: while (self.current_row < self.rows_fetched and self.current_row < self.rows.len) : (self.current_row += 1) {
-                        switch (self.row_status[self.current_row]) {
-                            .Success, .SuccessWithInfo, .Error => {
-                                const item_row = self.rows[self.current_row];
-                                self.current_row += 1;
-                                return FetchResult(ItemType).toTarget(self.allocator, item_row) catch |err| switch (err) {
-                                    error.InvalidNullValue => continue :item_loop,
-                                    else => return err,
-                                };
-                            },
-                            else => {},
-                        }
-                    }
-                }
-            }
-
-            /// Bind each column of the result set to their associated row buffers.
-            /// After this function is called + `statement.fetch()`, you can retrieve
-            /// result data from this struct.
-            fn bindColumns(self: *Self) !void {
-                @setEvalBranchQuota(1_000_000);
-                comptime var column_number: u16 = 1;
-
-                inline for (std.meta.fields(RowType)) |field| {
-                    comptime if (std.mem.endsWith(u8, field.name, "_len_or_ind")) continue;
-
-                    const c_type = comptime blk: {
-                        if (odbc.Types.CType.fromType(field.field_type)) |c_type| {
-                            break :blk c_type;
-                        } else {
-                            @compileError("CType could not be derived for " ++ @typeName(ItemType) ++ "." ++ field.name ++ " (" ++ @typeName(field.field_type) ++ ")");
-                        }
-                    };
-
-                    const FieldTypeInfo = @typeInfo(field.field_type);
-                    const FieldDataType = switch (FieldTypeInfo) {
-                        .Pointer => |info| info.child,
-                        .Array => |info| info.child,
-                        else => field.field_type,
-                    };
-
-                    const value_ptr: []FieldDataType = switch (FieldTypeInfo) {
-                        .Pointer => switch (FieldTypeInfo.Pointer.size) {
-                            .One => @ptrCast([*]FieldDataType, @field(self.rows[0], field.name))[0..1],
-                            else => @field(self.rows[0], field.name)[0..],
-                        },
-                        .Array => @field(self.rows[0], field.name)[0..],
-                        else => @ptrCast([*]FieldDataType, &@field(self.rows[0], field.name))[0..1],
-                    };
-
-                    try self.statement.bindColumn(column_number, c_type, value_ptr, @ptrCast([*]c_longlong, &@field(self.rows[0], field.name ++ "_len_or_ind")), null);
-
-                    column_number += 1;
-                }
-            }
-        };
-    }
-
-    const RowIterator = struct {
-        const Column = struct {
-            name: []const u8,
-            sql_type: odbc.Types.SqlType,
-            data: []u8,
-            octet_length: usize,
-            indicator: []c_longlong,
-        };
-
-        columns: []Column,
-        row: Row,
+        rows: []RowType,
         row_status: []RowStatus,
-        is_first: bool = true,
-        current_row: usize = 0,
-        row_count: usize = 0,
+
         rows_fetched: usize = 0,
+        current_row: usize = 0,
 
-        statement: odbc.Statement,
+        is_first: bool = true,
+
         allocator: Allocator,
+        statement: odbc.Statement,
 
-        pub fn init(allocator: Allocator, statement: odbc.Statement, row_count: usize) !RowIterator {
-            var result: RowIterator = undefined;
+        /// Initialze the ResultSet with the given `row_count`. `row_count` will control how many results
+        /// are fetched every time `statement.fetch()` is called.
+        pub fn init(allocator: Allocator, statement: odbc.Statement, row_count: usize) !Self {
+            var result: Self = undefined;
             result.statement = statement;
             result.allocator = allocator;
             result.rows_fetched = 0;
+            result.current_row = 0;
             result.is_first = true;
-            result.row_status = try allocator.alloc(RowStatus, row_count);
-            result.row_count = row_count;
 
-            try result.statement.setAttribute(.{ .RowBindType = odbc.sys.SQL_BIND_BY_COLUMN });
+            result.rows = try allocator.alloc(RowType, row_count);
+            result.row_status = try allocator.alloc(RowStatus, row_count);
+
+            try result.statement.setAttribute(.{ .RowBindType = @sizeOf(RowType) });
             try result.statement.setAttribute(.{ .RowArraySize = row_count });
             try result.statement.setAttribute(.{ .RowStatusPointer = result.row_status });
 
-            const num_columns = try result.statement.numResultColumns();
-            result.columns = try allocator.alloc(Column, num_columns);
-            result.row = try Row.init(allocator, num_columns);
-
-            for (result.columns) |*column, column_index| {
-                column.sql_type = (try result.statement.getColumnAttribute(allocator, column_index + 1, .Type)).Type;
-                column.name = (try result.statement.getColumnAttribute(allocator, column_index + 1, .BaseColumnName)).BaseColumnName;
-
-                column.octet_length = if (result.statement.getColumnAttribute(allocator, column_index + 1, .OctetLength)) |attr|
-                    @intCast(usize, attr.OctetLength)
-                else |_| 0;
-
-                if (column.octet_length == 0) {
-                    const length = (try result.statement.getColumnAttribute(allocator, column_index + 1, .Length)).Length;
-                    column.octet_length = @intCast(usize, length);
-                }
-
-                column.data = try allocator.alloc(u8, row_count * column.octet_length);
-                column.indicator = try allocator.alloc(c_longlong, row_count);
-
-                try result.statement.bindColumn(@intCast(u16, column_index + 1), column.sql_type.defaultCType(), column.data, column.indicator.ptr, column.octet_length);
-            }
+            try result.bindColumns();
 
             return result;
         }
 
-        pub fn deinit(self: *RowIterator) void {
-            for (self.columns) |*column| {
-                self.allocator.free(column.name);
-                self.allocator.free(column.data);
-                self.allocator.free(column.indicator);
-            }
-
-            self.allocator.free(self.columns);
+        pub fn deinit(self: *Self) void {
+            self.allocator.free(self.rows);
             self.allocator.free(self.row_status);
-            self.row.deinit(self.allocator);
         }
 
-        pub fn next(self: *RowIterator) !?*Row {
+        /// Keep fetching until all results have been retrieved.
+        pub fn getAllRows(self: *Self) ![]ItemType {
+            var results = try std.ArrayList(ItemType).initCapacity(self.allocator, 20);
+            errdefer results.deinit();
+
+            while (try self.next()) |item| {
+                try results.append(item);
+            }
+
+            return results.toOwnedSlice();
+        }
+
+        /// Get the next available row. If all current rows have been read, this will attempt to
+        /// fetch more results with `statement.fetch()`. If `statement.fetch()` returns `error.NoData`,
+        /// this will return `null`.
+        pub fn next(self: *Self) !?ItemType {
             if (self.is_first) {
                 try self.statement.setAttribute(.{ .RowsFetchedPointer = &self.rows_fetched });
                 self.is_first = false;
@@ -541,43 +400,184 @@ pub const ResultSet = struct {
                     self.current_row = 0;
                 }
 
-                while (self.current_row < self.rows_fetched and self.current_row < self.row_count) : (self.current_row += 1) {
+                item_loop: while (self.current_row < self.rows_fetched and self.current_row < self.rows.len) : (self.current_row += 1) {
                     switch (self.row_status[self.current_row]) {
                         .Success, .SuccessWithInfo, .Error => {
-                            for (self.row.columns) |*row_column, column_index| {
-                                const current_column = self.columns[column_index];
-                                row_column.name = current_column.name;
-
-                                const data_start_index = self.current_row * current_column.octet_length;
-                                const data_end_index = data_start_index + current_column.octet_length;
-                                row_column.data = current_column.data[data_start_index..data_end_index];
-                                row_column.indicator = current_column.indicator[self.current_row];
-                                row_column.sql_type = current_column.sql_type;
-                            }
-
+                            const item_row = self.rows[self.current_row];
                             self.current_row += 1;
-                            return &self.row;
+                            return FetchResult(ItemType).toTarget(self.allocator, item_row) catch |err| switch (err) {
+                                error.InvalidNullValue => continue :item_loop,
+                                else => return err,
+                            };
                         },
                         else => {},
                     }
                 }
             }
         }
+
+        /// Bind each column of the result set to their associated row buffers.
+        /// After this function is called + `statement.fetch()`, you can retrieve
+        /// result data from this struct.
+        fn bindColumns(self: *Self) !void {
+            @setEvalBranchQuota(1_000_000);
+            comptime var column_number: u16 = 1;
+
+            inline for (std.meta.fields(RowType)) |field| {
+                comptime if (std.mem.endsWith(u8, field.name, "_len_or_ind")) continue;
+
+                const c_type = comptime blk: {
+                    if (odbc.Types.CType.fromType(field.field_type)) |c_type| {
+                        break :blk c_type;
+                    } else {
+                        @compileError("CType could not be derived for " ++ @typeName(ItemType) ++ "." ++ field.name ++ " (" ++ @typeName(field.field_type) ++ ")");
+                    }
+                };
+
+                const FieldTypeInfo = @typeInfo(field.field_type);
+                const FieldDataType = switch (FieldTypeInfo) {
+                    .Pointer => |info| info.child,
+                    .Array => |info| info.child,
+                    else => field.field_type,
+                };
+
+                const value_ptr: []FieldDataType = switch (FieldTypeInfo) {
+                    .Pointer => switch (FieldTypeInfo.Pointer.size) {
+                        .One => @ptrCast([*]FieldDataType, @field(self.rows[0], field.name))[0..1],
+                        else => @field(self.rows[0], field.name)[0..],
+                    },
+                    .Array => @field(self.rows[0], field.name)[0..],
+                    else => @ptrCast([*]FieldDataType, &@field(self.rows[0], field.name))[0..1],
+                };
+
+                try self.statement.bindColumn(column_number, c_type, value_ptr, @ptrCast([*]c_longlong, &@field(self.rows[0], field.name ++ "_len_or_ind")), null);
+
+                column_number += 1;
+            }
+        }
+    };
+}
+
+const RowIterator = struct {
+    const Column = struct {
+        name: []const u8,
+        sql_type: odbc.Types.SqlType,
+        data: []u8,
+        octet_length: usize,
+        indicator: []c_longlong,
     };
 
-    statement: Statement,
+    columns: []Column,
+    row: Row,
+    row_status: []RowStatus,
+    is_first: bool = true,
+    current_row: usize = 0,
+    row_count: usize = 0,
+    rows_fetched: usize = 0,
 
-    pub fn init(statement: Statement) ResultSet {
-        return ResultSet{
-            .statement = statement,
-        };
+    statement: odbc.Statement,
+    allocator: Allocator,
+
+    pub fn init(allocator: Allocator, statement: odbc.Statement, row_count: usize) !RowIterator {
+        var result: RowIterator = undefined;
+        result.statement = statement;
+        result.allocator = allocator;
+        result.rows_fetched = 0;
+        result.is_first = true;
+        result.row_status = try allocator.alloc(RowStatus, row_count);
+        result.row_count = row_count;
+
+        try result.statement.setAttribute(.{ .RowBindType = odbc.sys.SQL_BIND_BY_COLUMN });
+        try result.statement.setAttribute(.{ .RowArraySize = row_count });
+        try result.statement.setAttribute(.{ .RowStatusPointer = result.row_status });
+
+        const num_columns = try result.statement.numResultColumns();
+        result.columns = try allocator.alloc(Column, num_columns);
+        result.row = try Row.init(allocator, num_columns);
+
+        for (result.columns) |*column, column_index| {
+            column.sql_type = (try result.statement.getColumnAttribute(allocator, column_index + 1, .Type)).Type;
+            column.name = (try result.statement.getColumnAttribute(allocator, column_index + 1, .BaseColumnName)).BaseColumnName;
+
+            column.octet_length = if (result.statement.getColumnAttribute(allocator, column_index + 1, .OctetLength)) |attr|
+                @intCast(usize, attr.OctetLength)
+            else |_| 0;
+
+            if (column.octet_length == 0) {
+                const length = (try result.statement.getColumnAttribute(allocator, column_index + 1, .Length)).Length;
+                column.octet_length = @intCast(usize, length);
+            }
+
+            column.data = try allocator.alloc(u8, row_count * column.octet_length);
+            column.indicator = try allocator.alloc(c_longlong, row_count);
+
+            try result.statement.bindColumn(@intCast(u16, column_index + 1), column.sql_type.defaultCType(), column.data, column.indicator.ptr, column.octet_length);
+        }
+
+        return result;
     }
 
-    pub fn itemIterator(result_set: ResultSet, comptime ItemType: type, allocator: Allocator) !ItemIterator(ItemType) {
-        return try ItemIterator(ItemType).init(allocator, result_set.statement, 10);
+    pub fn deinit(self: *RowIterator) void {
+        for (self.columns) |*column| {
+            self.allocator.free(column.name);
+            self.allocator.free(column.data);
+            self.allocator.free(column.indicator);
+        }
+
+        self.allocator.free(self.columns);
+        self.allocator.free(self.row_status);
+        self.row.deinit(self.allocator);
     }
 
-    pub fn rowIterator(result_set: ResultSet, allocator: Allocator) !RowIterator {
-        return try RowIterator.init(allocator, result_set.statement, 10);
+    pub fn next(self: *RowIterator) !?*Row {
+        if (self.is_first) {
+            try self.statement.setAttribute(.{ .RowsFetchedPointer = &self.rows_fetched });
+            self.is_first = false;
+        }
+
+        while (true) {
+            if (self.current_row >= self.rows_fetched) {
+                const has_data = try self.statement.fetch();
+                if (!has_data) return null;
+                self.current_row = 0;
+            }
+
+            while (self.current_row < self.rows_fetched and self.current_row < self.row_count) : (self.current_row += 1) {
+                switch (self.row_status[self.current_row]) {
+                    .Success, .SuccessWithInfo, .Error => {
+                        for (self.row.columns) |*row_column, column_index| {
+                            const current_column = self.columns[column_index];
+                            row_column.name = current_column.name;
+
+                            const data_start_index = self.current_row * current_column.octet_length;
+                            const data_end_index = data_start_index + current_column.octet_length;
+                            row_column.data = current_column.data[data_start_index..data_end_index];
+                            row_column.indicator = current_column.indicator[self.current_row];
+                            row_column.sql_type = current_column.sql_type;
+                        }
+
+                        self.current_row += 1;
+                        return &self.row;
+                    },
+                    else => {},
+                }
+            }
+        }
     }
 };
+
+statement: Statement,
+
+pub fn init(statement: Statement) ResultSet {
+    return ResultSet{
+        .statement = statement,
+    };
+}
+
+pub fn itemIterator(result_set: ResultSet, comptime ItemType: type, allocator: Allocator) !ItemIterator(ItemType) {
+    return try ItemIterator(ItemType).init(allocator, result_set.statement, 10);
+}
+
+pub fn rowIterator(result_set: ResultSet, allocator: Allocator) !RowIterator {
+    return try RowIterator.init(allocator, result_set.statement, 10);
+}
