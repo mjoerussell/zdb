@@ -72,8 +72,8 @@ pub fn execute(cursor: *Cursor) !ResultSet {
 ///
 /// If you don't want to set the paramters here, that's fine. You can pass `.{}` and use `cursor.bindParameter` or
 /// `cursor.bindParameters` later before executing the statement.
-pub fn prepare(cursor: *Cursor, sql_statement: []const u8, parameters: anytype) !void {
-    try cursor.bindParameters(parameters);
+pub fn prepare(cursor: *Cursor, allocator: Allocator, sql_statement: []const u8, parameters: anytype) !void {
+    try cursor.bindParameters(allocator, parameters);
     try cursor.statement.prepare(sql_statement);
 }
 
@@ -98,7 +98,7 @@ pub fn insert(cursor: *Cursor, allocator: Allocator, comptime insert_statement: 
     };
 
     try cursor.parameters.reset(allocator, num_params);
-    try cursor.prepare(insert_statement, .{});
+    try cursor.prepare(allocator, insert_statement, .{});
 
     var num_rows_inserted: usize = 0;
 
@@ -108,12 +108,12 @@ pub fn insert(cursor: *Cursor, allocator: Allocator, comptime insert_statement: 
                 .Slice => {
                     if (value.len < num_params) return error.WrongParamCount;
                     for (value) |param, param_index| {
-                        try cursor.bindParameter(param_index + 1, param);
+                        try cursor.bindParameter(allocator, param_index + 1, param);
                     }
                 },
                 .One => {
                     if (num_params != 1) return error.WrongParamCount;
-                    try cursor.bindParameter(value_index + 1, value.*);
+                    try cursor.bindParameter(allocator, value_index + 1, value.*);
                 },
                 else => unreachable,
             },
@@ -121,31 +121,31 @@ pub fn insert(cursor: *Cursor, allocator: Allocator, comptime insert_statement: 
                 comptime if (struct_tag.fields.len != num_params)
                     @compileError("Struct type " ++ @typeName(DataType) ++ " cannot be inserted as it has the wrong number of fields.");
                 inline for (std.meta.fields(DataType)) |field, param_index| {
-                    try cursor.bindParameter(param_index + 1, @field(value, field.name));
+                    try cursor.bindParameter(allocator, param_index + 1, @field(value, field.name));
                 }
             },
             .Array => |array_tag| {
                 comptime if (array_tag.len != num_params) @compileError("Array type " ++ @typeName(DataType) ++ " cannot be inserted because it has the wrong length");
                 for (value) |val, param_index| {
-                    try cursor.bindParameter(param_index + 1, val);
+                    try cursor.bindParameter(allocator, param_index + 1, val);
                 }
             },
             .Optional => {
                 comptime if (num_params != 1) @compileError("Cannot insert Optional type - statement only has one parameter.");
-                try cursor.bindParameter(value_index + 1, value);
+                try cursor.bindParameter(allocator, value_index + 1, value);
             },
             .Enum => {
                 comptime if (num_params != 1) @compileError("Cannot insert Enum type - statement only has one parameter.");
                 const enum_value = @enumToInt(value);
-                try cursor.bindParameter(value_index + 1, enum_value);
+                try cursor.bindParameter(allocator, value_index + 1, enum_value);
             },
             .EnumLiteral => {
                 comptime if (num_params != 1) @compileError("Cannot insert EnumLiteral type - statement only has one parameter.");
-                try cursor.bindParameter(value_index + 1, @tagName(value));
+                try cursor.bindParameter(allocator, value_index + 1, @tagName(value));
             },
             .Int, .Float, .ComptimeInt, .ComptimeFloat, .Bool => {
                 comptime if (num_params != 1) @compileError("Cannot insert " ++ @typeName(DataType) ++ " type - statement only has one parameter.");
-                try cursor.bindParameter(value_index + 1, value);
+                try cursor.bindParameter(allocator, value_index + 1, value);
             },
             else => unreachable,
         }
