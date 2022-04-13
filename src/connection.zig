@@ -13,7 +13,9 @@ pub const ConnectionInfo = struct {
     pub const Config = struct {
         driver: ?[]const u8 = null,
         dsn: ?[]const u8 = null,
+        database: ?[]const u8 = null,
         server: ?[]const u8 = null,
+        port: ?[]const u8 = null,
         username: ?[]const u8 = null,
         password: ?[]const u8 = null,
     };
@@ -33,7 +35,9 @@ pub const ConnectionInfo = struct {
         var connection_info = ConnectionInfo.init(allocator);
         if (config.driver) |driver| try connection_info.setDriver(driver);
         if (config.dsn) |dsn| try connection_info.setDSN(dsn);
+        if (config.database) |database| try connection_info.setAttribute("DATABASE", database);
         if (config.server) |server| try connection_info.setAttribute("SERVER", server);
+        if (config.port) |port| try connection_info.setAttribute("PORT", port);
         if (config.username) |username| try connection_info.setUsername(username);
         if (config.password) |password| try connection_info.setPassword(password);
 
