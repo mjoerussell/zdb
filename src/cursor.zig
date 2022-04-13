@@ -236,7 +236,7 @@ pub const Cursor = struct {
     /// and does not return an error. Parameter indices start at 1.
     pub fn bindParameter(cursor: *Cursor, allocator: Allocator, index: usize, parameter: anytype) !void {
         const stored_param = try cursor.parameters.set(allocator, parameter, index - 1);
-        const sql_param = sql_parameter.default(parameter);
+        const sql_param = sql_parameter.SqlParameter.default(parameter);
         try cursor.statement.bindParameter(
             @intCast(u16, index),
             .Input,

@@ -8,33 +8,30 @@ const EraseComptime = @import("util.zig").EraseComptime;
 /// about the type of a value. `sql_type` is often used to tell the driver how to convert
 /// the value into one that SQL will understand, whereas `c_type` is generally used so that
 /// the driver has a way to convert a `*anyopaque` or `[]u8` into a value.
-pub fn SqlParameter(comptime T: type) type {
-    return struct {
-        sql_type: odbc.Types.SqlType,
-        c_type: odbc.Types.CType,
-        precision: ?u16 = null, // Only for numeric types, not sure the best way to model this
-        value: T,
-    };
-}
+pub const SqlParameter = struct {
+    sql_type: odbc.Types.SqlType,
+    c_type: odbc.Types.CType,
+    precision: ?u16 = null, // Only for numeric types, not sure the best way to model this
 
-/// Get the default SqlType and CType equivalents for an arbitrary value. If the value is a float,
-/// precision will be defaulted to `6`. If the value is a `comptime_int` or `comptime_float`, then
-/// it will be converted here to `i64` or `f64`, respectively.
-pub fn default(value: anytype) SqlParameter(EraseComptime(@TypeOf(value))) {
-    const ValueType = EraseComptime(@TypeOf(value));
-    
-    var result = SqlParameter(ValueType){
-        .value = value,
-        .sql_type = comptime odbc.Types.SqlType.fromType(ValueType) orelse @compileError("Cannot get default SqlType for type " ++ @typeName(ValueType)),
-        .c_type = comptime odbc.Types.CType.fromType(ValueType) orelse @compileError("Cannot get default CType for type " ++ @typeName(ValueType)),
-    };
+    /// Get the default SqlType and CType equivalents for an arbitrary value. If the value is a float,
+    /// precision will be defaulted to `6`. If the value is a `comptime_int` or `comptime_float`, then
+    /// it will be converted here to `i64` or `f64`, respectively.
+    pub fn default(value: anytype) SqlParameter {
+        const ValueType = EraseComptime(@TypeOf(value));
+        
+        var result = SqlParameter{
+            .sql_type = comptime odbc.Types.SqlType.fromType(ValueType) orelse @compileError("Cannot get default SqlType for type " ++ @typeName(ValueType)),
+            .c_type = comptime odbc.Types.CType.fromType(ValueType) orelse @compileError("Cannot get default CType for type " ++ @typeName(ValueType)),
+        };
 
-    if (std.meta.trait.isFloat(@TypeOf(value))) {
-        result.precision = 6;
+        if (std.meta.trait.isFloat(@TypeOf(value))) {
+            result.precision = 6;
+        }
+
+        return result;
     }
+};
 
-    return result;
-}
 
 // @todo I think that it's actually going to be beneficial to return to the original design of ParameterBucket which used a []u8 to hold
 //       all of the param data. That idea wasn't the problem, the problem is that I didn't work hard enough to build a system that can properly
@@ -86,7 +83,7 @@ pub const ParameterBucket = struct {
         for (bucket.indicators[0..param_index]) |indicator| {
             data_index += @intCast(usize, indicator);
         }
-        
+
         const data_indicator = @intCast(usize, bucket.indicators[param_index]);
 
         const data_buffer: []const u8 = if (comptime std.meta.trait.isZigString(ParamType))
@@ -137,11 +134,9 @@ pub const ParameterBucket = struct {
 test "SqlParameter defaults" {
     const SqlType = odbc.Types.SqlType;
     const CType = odbc.Types.CType;
-    const a = default(10);
+    const a = SqlParameter.default(10);
 
     try std.testing.expect(a.precision == null);
-    try std.testing.expect(a.value == 10);
-    try std.testing.expectEqual(i64, @TypeOf(a.value));
     try std.testing.expectEqual(CType.SBigInt, a.c_type);
     try std.testing.expectEqual(SqlType.BigInt, a.sql_type);
 }
@@ -149,11 +144,9 @@ test "SqlParameter defaults" {
 test "SqlParameter string" {
     const SqlType = odbc.Types.SqlType;
     const CType = odbc.Types.CType;
-    const param = default("some string");
+    const param = SqlParameter.default("some string");
 
     try std.testing.expect(param.precision == null);
-    try std.testing.expectEqualStrings("some string", param.value);
-    try std.testing.expectEqual(*const [11:0] u8, @TypeOf(param.value));
     try std.testing.expectEqual(CType.Char, param.c_type);
     try std.testing.expectEqual(SqlType.Varchar, param.sql_type);
 }
