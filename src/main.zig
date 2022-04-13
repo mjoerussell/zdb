@@ -3,9 +3,8 @@ const Allocator = std.mem.Allocator;
 
 const odbc = @import("odbc");
 
-const db_connection = @import("connection.zig");
-const Connection = db_connection.Connection;
-const ConnectionInfo = db_connection.ConnectionInfo;
+const Connection = @import("Connection.zig");
+const ConnectionInfo = Connection.ConnectionInfo;
 
 const OdbcTestType = struct {
     id: u32,

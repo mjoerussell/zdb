@@ -7,6 +7,8 @@ const Cursor = @import("Cursor.zig");
 
 pub const CommitMode = enum(u1) { auto, manual };
 
+const Connection = @This();
+
 pub const ConnectionInfo = struct {
     pub const Config = struct {
         driver: ?[]const u8 = null,
@@ -129,48 +131,46 @@ pub const ConnectionInfo = struct {
     }
 };
 
-pub const Connection = struct {
-    pub const ConnectConfig = struct {
-        version: odbc.Types.EnvironmentAttributeValue.OdbcVersion = .Odbc3,
-    };
-
-    environment: odbc.Environment,
-    connection: odbc.Connection,
-
-    pub fn init(config: ConnectConfig) !Connection {
-        var connection: Connection = undefined;
-
-        connection.environment = try odbc.Environment.init();
-        errdefer connection.environment.deinit() catch {};
-
-        try connection.environment.setOdbcVersion(config.version);
-
-        connection.connection = try odbc.Connection.init(&connection.environment);
-        
-        return connection;
-    }
-
-    pub fn connect(conn: *Connection, server_name: []const u8, username: []const u8, password: []const u8) !void {
-        try conn.connection.connect(server_name, username, password);
-    }
-
-    pub fn connectExtended(conn: *Connection, connection_string: []const u8) !void {
-        try conn.connection.connectExtended(connection_string, .NoPrompt);
-    }
-
-    pub fn deinit(self: *Connection) void {
-        self.connection.deinit() catch {};
-        self.environment.deinit() catch {};
-    }
-
-    pub fn setCommitMode(self: *Connection, mode: CommitMode) !void {
-        try self.connection.setAttribute(.{ .Autocommit = mode == .auto });
-    }
-
-    pub fn getCursor(self: *Connection, allocator: Allocator) !Cursor {
-        return try Cursor.init(allocator, self.connection);
-    }
+pub const ConnectConfig = struct {
+    version: odbc.Types.EnvironmentAttributeValue.OdbcVersion = .Odbc3,
 };
+
+environment: odbc.Environment,
+connection: odbc.Connection,
+
+pub fn init(config: ConnectConfig) !Connection {
+    var connection: Connection = undefined;
+
+    connection.environment = try odbc.Environment.init();
+    errdefer connection.environment.deinit() catch {};
+
+    try connection.environment.setOdbcVersion(config.version);
+
+    connection.connection = try odbc.Connection.init(&connection.environment);
+    
+    return connection;
+}
+
+pub fn connect(conn: *Connection, server_name: []const u8, username: []const u8, password: []const u8) !void {
+    try conn.connection.connect(server_name, username, password);
+}
+
+pub fn connectExtended(conn: *Connection, connection_string: []const u8) !void {
+    try conn.connection.connectExtended(connection_string, .NoPrompt);
+}
+
+pub fn deinit(self: *Connection) void {
+    self.connection.deinit() catch {};
+    self.environment.deinit() catch {};
+}
+
+pub fn setCommitMode(self: *Connection, mode: CommitMode) !void {
+    try self.connection.setAttribute(.{ .Autocommit = mode == .auto });
+}
+
+pub fn getCursor(self: *Connection, allocator: Allocator) !Cursor {
+    return try Cursor.init(allocator, self.connection);
+}
 
 test "ConnectionInfo" {
     const allocator = std.testing.allocator;
