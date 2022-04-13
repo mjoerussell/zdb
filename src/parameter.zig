@@ -19,16 +19,11 @@ pub const SqlParameter = struct {
     pub fn default(value: anytype) SqlParameter {
         const ValueType = EraseComptime(@TypeOf(value));
         
-        var result = SqlParameter{
+        return SqlParameter{
             .sql_type = comptime odbc.Types.SqlType.fromType(ValueType) orelse @compileError("Cannot get default SqlType for type " ++ @typeName(ValueType)),
             .c_type = comptime odbc.Types.CType.fromType(ValueType) orelse @compileError("Cannot get default CType for type " ++ @typeName(ValueType)),
+            .precision = if (std.meta.trait.isFloat(@TypeOf(value))) 6 else null, 
         };
-
-        if (std.meta.trait.isFloat(@TypeOf(value))) {
-            result.precision = 6;
-        }
-
-        return result;
     }
 };
 
