@@ -1,10 +1,10 @@
 const std = @import("std");
 const buildZdb = @import("build_pkg.zig").buildPkgPath;
 
-const examples = &[_][2][]const u8{
-    .{ "basic-connect", "src/basic_connect.zig" },
-    .{ "connect-create", "src/connect_and_create_db.zig" },
-    .{ "create-table", "src/create_and_query_table.zig" },
+const examples = &[_][3][]const u8{
+    .{ "basic-connect", "src/01_basic_connect.zig", "Beginner example - configure a connection string and connect to a DB" },
+    .{ "connect-create", "src/02_connect_and_create_db.zig", "Connect to a DB, create a new DB, and then reconnect to that new DB" },
+    .{ "create-table", "src/03_create_and_query_table.zig", "Create a new table, insert data into the table, and query data from the table" },
 };
 
 pub fn build(b: *std.build.Builder) !void {
@@ -27,7 +27,7 @@ pub fn build(b: *std.build.Builder) !void {
 
         const run_cmd = example_exe.run();
         run_cmd.step.dependOn(b.getInstallStep());
-        const run_step = b.step(example[0], "Run example \"" ++ example[0] ++ "\"");
+        const run_step = b.step(example[0], example[2]);
         run_step.dependOn(&run_cmd.step);
     }
 
