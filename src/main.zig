@@ -65,7 +65,7 @@ pub fn main() !void {
     //     \\WHERE name = ? OR age < ?
     // );
 
-    var result_set = try cursor.executeDirect(allocator, "select * from odbc_zig_test where age > ?", .{30});
+    var result_set = try cursor.executeDirect(allocator, "select * from odbc_zig_test where name = ?", .{"Andrea"});
 
     // var result_iter = try result_set.itemIterator(OdbcTestType);
     // defer result_iter.deinit();

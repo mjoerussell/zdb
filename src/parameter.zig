@@ -83,13 +83,10 @@ pub const ParameterBucket = struct {
         const ParamType = EraseComptime(@TypeOf(param_data));
 
         var data_index: usize = 0;
-        for (bucket.indicators) |indicator, index| {
-            if (index == param_index) {
-                break;
-            }
-
+        for (bucket.indicators[0..param_index]) |indicator| {
             data_index += @intCast(usize, indicator);
         }
+        
         const data_indicator = @intCast(usize, bucket.indicators[param_index]);
 
         const data_buffer: []const u8 = if (comptime std.meta.trait.isZigString(ParamType))
@@ -99,20 +96,9 @@ pub const ParameterBucket = struct {
 
         bucket.indicators[param_index] = @intCast(c_longlong, data_buffer.len);
 
-        const is_last_param = param_index == bucket.indicators.len - 1;
-        if (data_buffer.len == data_indicator) {
-            // When the new param is exactly the same as the old param, no
-            // additional adjustment needs to be done
-            std.mem.copy(u8, bucket.data[data_index..], data_buffer);
-        } else if (data_buffer.len < data_indicator) {
-            std.mem.copy(u8, bucket.data[data_index..], data_buffer);
-            if (is_last_param) {
-                return Param{ 
-                    .data = @ptrCast(*anyopaque, &bucket.data[data_index]), 
-                    .indicator = &bucket.indicators[param_index] 
-                };
-            }
-
+        if (data_buffer.len != data_indicator) {
+            // If the new len is not the same as the old one, then some adjustments have to be made to the rest of
+            // the params
             var remaining_param_size: usize = 0;
             for (bucket.indicators[param_index..]) |ind| {
                 remaining_param_size += @intCast(usize, ind);
@@ -120,21 +106,25 @@ pub const ParameterBucket = struct {
 
             const original_data_end_index = data_index + data_indicator;
             const new_data_end_index = data_index + data_buffer.len;
-            std.mem.copy(u8, bucket.data[new_data_end_index..], bucket.data[original_data_end_index..original_data_end_index + remaining_param_size]);
-        } else {
-            const size_increase = data_buffer.len - data_indicator;
-            bucket.data = try allocator.realloc(bucket.data, bucket.data.len + size_increase);
 
-            var remaining_param_size: usize = 0;
-            for (bucket.indicators[param_index..]) |ind| {
-                remaining_param_size += @intCast(usize, ind);
+            const copy_dest = bucket.data[new_data_end_index..];
+            const copy_src = bucket.data[original_data_end_index..original_data_end_index + remaining_param_size];
+
+            if (data_buffer.len < data_indicator) {
+                // If the new len is smaller than the old one, then just move the remaining params
+                // forward
+                std.mem.copy(u8, copy_dest, copy_src);
+            } else {
+                // If the new len is bigger than the old one, then resize the buffer and then move the
+                // remaining params backwards
+                const size_increase = data_buffer.len - data_indicator;
+                bucket.data = try allocator.realloc(bucket.data, bucket.data.len + size_increase);
+
+                std.mem.copyBackwards(u8, copy_dest, copy_src);
             }
-
-            const original_data_end_index = data_index + data_indicator;
-            const new_data_end_index = data_index + data_buffer.len;
-            std.mem.copyBackwards(u8, bucket.data[new_data_end_index..], bucket.data[original_data_end_index..original_data_end_index + remaining_param_size]);
-            std.mem.copy(u8, bucket.data[data_index..], data_buffer);
         }
+        
+        std.mem.copy(u8, bucket.data[data_index..], data_buffer);
 
         return Param{
             .data = @ptrCast(*anyopaque, &bucket.data[data_index]),
