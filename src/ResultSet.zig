@@ -191,7 +191,7 @@ pub const Row = struct {
                 return column.data[0..null_index];
             }
 
-            return column.data;
+            return column.data[0..@intCast(usize, column.indicator)];
         }
     };
 
