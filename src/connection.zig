@@ -173,8 +173,8 @@ pub const Connection = struct {
         try self.connection.setAttribute(.{ .Autocommit = mode == .auto });
     }
 
-    pub fn getCursor(self: *Connection) !Cursor {
-        return try Cursor.init(self.connection);
+    pub fn getCursor(self: *Connection, allocator: Allocator) !Cursor {
+        return try Cursor.init(allocator, self.connection);
     }
 };
 
