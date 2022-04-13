@@ -16,22 +16,23 @@ const Table = catalog_types.Table;
 const TablePrivileges = catalog_types.TablePrivileges;
 
 pub const Cursor = struct {
-    parameters: ?ParameterBucket = null,
+    parameters: ParameterBucket,
 
     connection: Connection,
     statement: Statement,
 
-    pub fn init(connection: Connection) !Cursor {
+    pub fn init(allocator: Allocator, connection: Connection) !Cursor {
         return Cursor{
             .connection = connection,
             .statement = try Statement.init(connection),
+            .parameters = try ParameterBucket.init(allocator, 10),
         };
     }
 
-    pub fn deinit(self: *Cursor) !void {
+    pub fn deinit(self: *Cursor, allocator: Allocator) !void {
         try self.close();
         try self.statement.deinit();
-        self.clearParameters();
+        self.parameters.deinit(allocator);
     }
 
     /// Close the current cursor. If the cursor is not open, does nothing and does not return an error.
@@ -51,28 +52,9 @@ pub const Cursor = struct {
         }
 
         if (num_params != parameters.len) return error.InvalidNumParams;
-
-        cursor.clearParameters();
-        cursor.parameters = try ParameterBucket.init(allocator, num_params);
-        defer {
-            cursor.parameters.?.deinit();
-            cursor.parameters = null;
-        }
-
-        inline for (parameters) |param, index| {
-            const stored_param = try cursor.parameters.?.addParameter(index, param);
-            const sql_param = sql_parameter.default(param);
-            try cursor.statement.bindParameter(
-                @intCast(u16, index + 1),
-                .Input,
-                sql_param.c_type,
-                sql_param.sql_type,
-                stored_param.param,
-                sql_param.precision,
-                stored_param.indicator,
-            );
-        }
-
+        try cursor.parameters.reset(allocator, num_params);
+        
+        try cursor.bindParameters(allocator, parameters);
         _ = try cursor.statement.executeDirect(sql_statement);
 
         return ResultSet.init(cursor.statement);
@@ -116,8 +98,8 @@ pub const Cursor = struct {
             break :blk count;
         };
 
+        try cursor.parameters.reset(allocator, num_params);
         try cursor.prepare(insert_statement, .{});
-        cursor.parameters = try ParameterBucket.init(allocator, num_params);
 
         var num_rows_inserted: usize = 0;
 
@@ -252,20 +234,18 @@ pub const Cursor = struct {
 
     /// Bind a single value to a SQL parameter. If `self.parameters` is `null`, this does nothing
     /// and does not return an error. Parameter indices start at 1.
-    pub fn bindParameter(self: *Cursor, index: usize, parameter: anytype) !void {
-        if (self.parameters) |*params| {
-            const stored_param = try params.addParameter(index - 1, parameter);
-            const sql_param = sql_parameter.default(parameter);
-            try self.statement.bindParameter(
-                @intCast(u16, index),
-                .Input,
-                sql_param.c_type,
-                sql_param.sql_type,
-                stored_param.param,
-                sql_param.precision,
-                stored_param.indicator,
-            );
-        }
+    pub fn bindParameter(cursor: *Cursor, allocator: Allocator, index: usize, parameter: anytype) !void {
+        const stored_param = try cursor.parameters.set(allocator, parameter, index - 1);
+        const sql_param = sql_parameter.default(parameter);
+        try cursor.statement.bindParameter(
+            @intCast(u16, index),
+            .Input,
+            sql_param.c_type,
+            sql_param.sql_type,
+            stored_param.data,
+            sql_param.precision,
+            stored_param.indicator,
+        );
     }
 
     /// Bind a list of parameters to SQL parameters. The first item in the list will be bound
@@ -274,20 +254,11 @@ pub const Cursor = struct {
     /// Calling this function clears all existing parameters, and if an empty list is passed in 
     /// will not re-initialize them.
     pub fn bindParameters(cursor: *Cursor, allocator: Allocator, parameters: anytype) !void {
-        cursor.clearParameters();
-        if (parameters.len > 0) {
-            cursor.parameters = try ParameterBucket.init(allocator, parameters.len);
-        }
+        try cursor.parameters.reset(allocator, parameters.len);
 
         inline for (parameters) |param, index| {
-            try cursor.bindParameter(index + 1, param);
+            try cursor.bindParameter(allocator, index + 1, param);
         }
-    }
-
-    /// Deinitialize any parameters allocated on this statement (if any), and reset `self.parameters` to null.
-    fn clearParameters(cursor: *Cursor) void {
-        if (cursor.parameters) |*p| p.deinit();
-        cursor.parameters = null;
     }
 
     pub fn getErrors(cursor: *Cursor, allocator: Allocator) []odbc.Error.DiagnosticRecord {
