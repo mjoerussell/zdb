@@ -4,6 +4,8 @@ const odbc = @import("odbc");
 
 const EraseComptime = @import("util.zig").EraseComptime;
 
+const ParameterBucket = @This();
+
 /// This struct contains the information necessary to communicate with the ODBC driver
 /// about the type of a value. `sql_type` is often used to tell the driver how to convert
 /// the value into one that SQL will understand, whereas `c_type` is generally used so that
@@ -35,96 +37,93 @@ pub const SqlParameter = struct {
 //       This design actually has a big disadvantage which is that every parameter that gets set needs to be separately allocated in order to produce
 //       a *anyopaque to store in Param. With the []u8 approach, extra space will need to be reallocated much more rarely since the data will be stored
 //       in the same persistent buffer.
-pub const ParameterBucket = struct {
-    pub const Param = struct {
-        data: *anyopaque,
-        indicator: *c_longlong,
+pub const Param = struct {
+    data: *anyopaque,
+    indicator: *c_longlong,
+};
+
+data: []u8,
+indicators: []c_longlong,
+
+pub fn init(allocator: Allocator, num_params: usize) !ParameterBucket {
+    var indicators = try allocator.alloc(c_longlong, num_params);
+    errdefer allocator.free(indicators);
+
+    for (indicators) |*i| i.* = 0;
+
+    return ParameterBucket{
+        .data = try allocator.alloc(u8, num_params * 8),
+        .indicators = indicators,
     };
+}
 
-    data: []u8,
-    indicators: []c_longlong,
+pub fn deinit(bucket: *ParameterBucket, allocator: Allocator) void {
+    allocator.free(bucket.data);
+    allocator.free(bucket.indicators);
+}
 
-    pub fn init(allocator: Allocator, num_params: usize) !ParameterBucket {
-        var indicators = try allocator.alloc(c_longlong, num_params);
-        errdefer allocator.free(indicators);
-
-        for (indicators) |*i| i.* = 0;
-
-        return ParameterBucket{
-            .data = try allocator.alloc(u8, num_params * 8),
-            .indicators = indicators,
-        };
+pub fn reset(bucket: *ParameterBucket, allocator: Allocator, new_param_count: usize) !void {
+    if (new_param_count > bucket.indicators.len) {
+        bucket.indicators = try allocator.realloc(bucket.indicators, new_param_count);
+        bucket.data = try allocator.realloc(bucket.data, new_param_count * 8);
     }
 
-    pub fn deinit(bucket: *ParameterBucket, allocator: Allocator) void {
-        allocator.free(bucket.data);
-        allocator.free(bucket.indicators);
+    for (bucket.indicators) |*i| i.* = 0;
+    for (bucket.data) |*d| d.* = 0;
+}
+
+pub fn set(bucket: *ParameterBucket, allocator: Allocator, param_data: anytype, param_index: usize) !Param {
+    const ParamType = EraseComptime(@TypeOf(param_data));
+
+    var data_index: usize = 0;
+    for (bucket.indicators[0..param_index]) |indicator| {
+        data_index += @intCast(usize, indicator);
     }
 
-    pub fn reset(bucket: *ParameterBucket, allocator: Allocator, new_param_count: usize) !void {
-        if (new_param_count > bucket.indicators.len) {
-            bucket.indicators = try allocator.realloc(bucket.indicators, new_param_count);
-            bucket.data = try allocator.realloc(bucket.data, new_param_count * 8);
+    const data_indicator = @intCast(usize, bucket.indicators[param_index]);
+
+    const data_buffer: []const u8 = if (comptime std.meta.trait.isZigString(ParamType))
+        param_data
+    else 
+        &std.mem.toBytes(@as(ParamType, param_data));
+
+    bucket.indicators[param_index] = @intCast(c_longlong, data_buffer.len);
+
+    if (data_buffer.len != data_indicator) {
+        // If the new len is not the same as the old one, then some adjustments have to be made to the rest of
+        // the params
+        var remaining_param_size: usize = 0;
+        for (bucket.indicators[param_index..]) |ind| {
+            remaining_param_size += @intCast(usize, ind);
         }
 
-        for (bucket.indicators) |*i| i.* = 0;
-        for (bucket.data) |*d| d.* = 0;
-    }
+        const original_data_end_index = data_index + data_indicator;
+        const new_data_end_index = data_index + data_buffer.len;
 
-    pub fn set(bucket: *ParameterBucket, allocator: Allocator, param_data: anytype, param_index: usize) !Param {
-        const ParamType = EraseComptime(@TypeOf(param_data));
+        const copy_dest = bucket.data[new_data_end_index..];
+        const copy_src = bucket.data[original_data_end_index..original_data_end_index + remaining_param_size];
 
-        var data_index: usize = 0;
-        for (bucket.indicators[0..param_index]) |indicator| {
-            data_index += @intCast(usize, indicator);
+        if (data_buffer.len < data_indicator) {
+            // If the new len is smaller than the old one, then just move the remaining params
+            // forward
+            std.mem.copy(u8, copy_dest, copy_src);
+        } else {
+            // If the new len is bigger than the old one, then resize the buffer and then move the
+            // remaining params backwards
+            const size_increase = data_buffer.len - data_indicator;
+            bucket.data = try allocator.realloc(bucket.data, bucket.data.len + size_increase);
+
+            std.mem.copyBackwards(u8, copy_dest, copy_src);
         }
-
-        const data_indicator = @intCast(usize, bucket.indicators[param_index]);
-
-        const data_buffer: []const u8 = if (comptime std.meta.trait.isZigString(ParamType))
-            param_data
-        else 
-            &std.mem.toBytes(@as(ParamType, param_data));
-
-        bucket.indicators[param_index] = @intCast(c_longlong, data_buffer.len);
-
-        if (data_buffer.len != data_indicator) {
-            // If the new len is not the same as the old one, then some adjustments have to be made to the rest of
-            // the params
-            var remaining_param_size: usize = 0;
-            for (bucket.indicators[param_index..]) |ind| {
-                remaining_param_size += @intCast(usize, ind);
-            }
-
-            const original_data_end_index = data_index + data_indicator;
-            const new_data_end_index = data_index + data_buffer.len;
-
-            const copy_dest = bucket.data[new_data_end_index..];
-            const copy_src = bucket.data[original_data_end_index..original_data_end_index + remaining_param_size];
-
-            if (data_buffer.len < data_indicator) {
-                // If the new len is smaller than the old one, then just move the remaining params
-                // forward
-                std.mem.copy(u8, copy_dest, copy_src);
-            } else {
-                // If the new len is bigger than the old one, then resize the buffer and then move the
-                // remaining params backwards
-                const size_increase = data_buffer.len - data_indicator;
-                bucket.data = try allocator.realloc(bucket.data, bucket.data.len + size_increase);
-
-                std.mem.copyBackwards(u8, copy_dest, copy_src);
-            }
-        }
-        
-        std.mem.copy(u8, bucket.data[data_index..], data_buffer);
-
-        return Param{
-            .data = @ptrCast(*anyopaque, &bucket.data[data_index]),
-            .indicator = &bucket.indicators[param_index],
-        };
     }
     
-};
+    std.mem.copy(u8, bucket.data[data_index..], data_buffer);
+
+    return Param{
+        .data = @ptrCast(*anyopaque, &bucket.data[data_index]),
+        .indicator = &bucket.indicators[param_index],
+    };
+}
 
 test "SqlParameter defaults" {
     const SqlType = odbc.Types.SqlType;

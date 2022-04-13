@@ -5,8 +5,7 @@ const odbc = @import("odbc");
 const Statement = odbc.Statement;
 const Connection = odbc.Connection;
 
-const sql_parameter = @import("parameter.zig");
-const ParameterBucket = sql_parameter.ParameterBucket;
+const ParameterBucket = @import("ParameterBucket.zig");
 
 const ResultSet = @import("result_set.zig").ResultSet;
 
@@ -237,7 +236,7 @@ pub fn tablePrivileges(cursor: *Cursor, allocator: Allocator, catalog_name: ?[]c
 /// and does not return an error. Parameter indices start at 1.
 pub fn bindParameter(cursor: *Cursor, allocator: Allocator, index: usize, parameter: anytype) !void {
     const stored_param = try cursor.parameters.set(allocator, parameter, index - 1);
-    const sql_param = sql_parameter.SqlParameter.default(parameter);
+    const sql_param = ParameterBucket.SqlParameter.default(parameter);
     try cursor.statement.bindParameter(
         @intCast(u16, index),
         .Input,

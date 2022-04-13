@@ -6,9 +6,6 @@ const odbc = @import("odbc");
 const ResultSet = @import("result_set.zig").ResultSet;
 const FetchResult = @import("result_set.zig").FetchResult;
 
-const sql_parameter = @import("parameter.zig");
-const ParameterBucket = sql_parameter.ParameterBucket;
-
 const Cursor = @import("Cursor.zig");
 
 pub const CommitMode = enum(u1) { auto, manual };
