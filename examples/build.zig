@@ -5,6 +5,7 @@ const examples = &[_][3][]const u8{
     .{ "basic-connect", "src/01_basic_connect.zig", "Beginner example - configure a connection string and connect to a DB" },
     .{ "connect-create", "src/02_connect_and_create_db.zig", "Connect to a DB, create a new DB, and then reconnect to that new DB" },
     .{ "create-table", "src/03_create_and_query_table.zig", "Create a new table, insert data into the table, and query data from the table" },
+    .{ "row-binding", "src/04_row_binding.zig", "Query data and extract results using a RowIterator" },
 };
 
 pub fn build(b: *std.build.Builder) !void {
