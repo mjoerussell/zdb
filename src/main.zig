@@ -12,7 +12,7 @@ const OdbcTestType = struct {
     occupation: []const u8,
     age: u32,
 
-    fn deinit(self: *OdbcTestType, allocator: *Allocator) void {
+    fn deinit(self: *OdbcTestType, allocator: Allocator) void {
         allocator.free(self.name);
         allocator.free(self.occupation);
     }
