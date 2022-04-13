@@ -36,54 +36,112 @@ pub fn default(value: anytype) SqlParameter(EraseComptime(@TypeOf(value))) {
     return result;
 }
 
+// @todo I think that it's actually going to be beneficial to return to the original design of ParameterBucket which used a []u8 to hold
+//       all of the param data. That idea wasn't the problem, the problem is that I didn't work hard enough to build a system that can properly
+//       realloc/move data when the user wants to replace values. 
+//
+//       This design actually has a big disadvantage which is that every parameter that gets set needs to be separately allocated in order to produce
+//       a *anyopaque to store in Param. With the []u8 approach, extra space will need to be reallocated much more rarely since the data will be stored
+//       in the same persistent buffer.
 pub const ParameterBucket = struct {
     pub const Param = struct {
-        param: *anyopaque,
+        data: *anyopaque,
         indicator: *c_longlong,
     };
 
-    data: std.ArrayListAlignedUnmanaged(u8, null),
-    param_indices: std.ArrayListUnmanaged(usize),
+    data: []u8,
     indicators: []c_longlong,
 
-    allocator: Allocator,
-
     pub fn init(allocator: Allocator, num_params: usize) !ParameterBucket {
+        var indicators = try allocator.alloc(c_longlong, num_params);
+        errdefer allocator.free(indicators);
+
+        for (indicators) |*i| i.* = 0;
+
         return ParameterBucket{
-            .allocator = allocator,
-            .data = try std.ArrayListAlignedUnmanaged(u8, null).initCapacity(allocator, num_params * 8),
-            .param_indices = try std.ArrayListUnmanaged(usize).initCapacity(allocator, num_params),
-            .indicators = try allocator.alloc(c_longlong, num_params)
+            .data = try allocator.alloc(u8, num_params * 8),
+            .indicators = indicators,
         };
     }
 
-    pub fn deinit(self: *ParameterBucket) void {
-        self.data.deinit(self.allocator);
-        self.param_indices.deinit(self.allocator);
-        self.allocator.free(self.indicators);
+    pub fn deinit(bucket: *ParameterBucket, allocator: Allocator) void {
+        allocator.free(bucket.data);
+        allocator.free(bucket.indicators);
     }
 
-    /// Insert a parameter into the bucker at the given index. Old parameter data at the
-    /// old index won't be overwritten, but old indicator values will be overwritten.
-    pub fn addParameter(self: *ParameterBucket, index: usize, param: anytype) !Param {
-        const ParamType = EraseComptime(@TypeOf(param));
-
-        const param_index = self.data.items.len;
-        try self.param_indices.append(self.allocator, param_index);
-
-        if (comptime std.meta.trait.isZigString(ParamType)) {
-            try self.data.appendSlice(self.allocator, param);
-            self.indicators[index] = @intCast(c_longlong, param.len);
-        } else {
-            try self.data.appendSlice(self.allocator, std.mem.toBytes(@as(ParamType, param))[0..]);
-            self.indicators[index] = @sizeOf(ParamType);
+    pub fn reset(bucket: *ParameterBucket, allocator: Allocator, new_param_count: usize) !void {
+        if (new_param_count > bucket.indicators.len) {
+            bucket.indicators = try allocator.realloc(bucket.indicators, new_param_count);
+            bucket.data = try allocator.realloc(bucket.data, new_param_count * 8);
         }
-        
+
+        for (bucket.indicators) |*i| i.* = 0;
+        for (bucket.data) |*d| d.* = 0;
+    }
+
+    pub fn set(bucket: *ParameterBucket, allocator: Allocator, param_data: anytype, param_index: usize) !Param {
+        const ParamType = EraseComptime(@TypeOf(param_data));
+
+        var data_index: usize = 0;
+        for (bucket.indicators) |indicator, index| {
+            if (index == param_index) {
+                break;
+            }
+
+            data_index += @intCast(usize, indicator);
+        }
+        const data_indicator = @intCast(usize, bucket.indicators[param_index]);
+
+        const data_buffer: []const u8 = if (comptime std.meta.trait.isZigString(ParamType))
+            param_data
+        else 
+            &std.mem.toBytes(@as(ParamType, param_data));
+
+        bucket.indicators[param_index] = @intCast(c_longlong, data_buffer.len);
+
+        const is_last_param = param_index == bucket.indicators.len - 1;
+        if (data_buffer.len == data_indicator) {
+            // When the new param is exactly the same as the old param, no
+            // additional adjustment needs to be done
+            std.mem.copy(u8, bucket.data[data_index..], data_buffer);
+        } else if (data_buffer.len < data_indicator) {
+            std.mem.copy(u8, bucket.data[data_index..], data_buffer);
+            if (is_last_param) {
+                return Param{ 
+                    .data = @ptrCast(*anyopaque, &bucket.data[data_index]), 
+                    .indicator = &bucket.indicators[param_index] 
+                };
+            }
+
+            var remaining_param_size: usize = 0;
+            for (bucket.indicators[param_index..]) |ind| {
+                remaining_param_size += @intCast(usize, ind);
+            }
+
+            const original_data_end_index = data_index + data_indicator;
+            const new_data_end_index = data_index + data_buffer.len;
+            std.mem.copy(u8, bucket.data[new_data_end_index..], bucket.data[original_data_end_index..original_data_end_index + remaining_param_size]);
+        } else {
+            const size_increase = data_buffer.len - data_indicator;
+            bucket.data = try allocator.realloc(bucket.data, bucket.data.len + size_increase);
+
+            var remaining_param_size: usize = 0;
+            for (bucket.indicators[param_index..]) |ind| {
+                remaining_param_size += @intCast(usize, ind);
+            }
+
+            const original_data_end_index = data_index + data_indicator;
+            const new_data_end_index = data_index + data_buffer.len;
+            std.mem.copyBackwards(u8, bucket.data[new_data_end_index..], bucket.data[original_data_end_index..original_data_end_index + remaining_param_size]);
+            std.mem.copy(u8, bucket.data[data_index..], data_buffer);
+        }
+
         return Param{
-            .param = @ptrCast(*anyopaque, &self.data.items[param_index]),
-            .indicator = &self.indicators[index]
+            .data = @ptrCast(*anyopaque, &bucket.data[data_index]),
+            .indicator = &bucket.indicators[param_index],
         };
     }
+    
 };
 
 test "SqlParameter defaults" {
