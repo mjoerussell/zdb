@@ -164,15 +164,9 @@ pub fn deinit(self: *Connection) void {
     self.environment.deinit() catch {};
 }
 
-<<<<<<< HEAD
 pub fn setCommitMode(self: *Connection, mode: CommitMode) !void {
     try self.connection.setAttribute(.{ .Autocommit = mode == .auto });
 }
-=======
-    pub fn getCursor(self: *DBConnection, allocator: Allocator) !Cursor {
-        return try Cursor.init(allocator, self.connection);
-    }
->>>>>>> @{-1}
 
 pub fn getCursor(self: *Connection, allocator: Allocator) !Cursor {
     return try Cursor.init(allocator, self.connection);
