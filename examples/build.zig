@@ -3,6 +3,7 @@ const buildZdb = @import("build_pkg.zig").buildPkgPath;
 
 const examples = &[_][2][]const u8{
     .{ "basic-connect", "src/basic_connect.zig" },
+    .{ "connect-create", "src/connect_and_create_db.zig" },
 };
 
 pub fn build(b: *std.build.Builder) !void {
