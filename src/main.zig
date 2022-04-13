@@ -62,7 +62,7 @@ pub fn main() !void {
     //     \\WHERE name = ? OR age < ?
     // );
 
-    var result_set = try cursor.executeDirect(allocator, "select * from odbc_zig_test where name = ?", .{"Andrea"});
+    var result_set = try cursor.executeDirect(allocator, "select * from odbc_zig_test where age > ?", .{30});
 
     // var result_iter = try result_set.itemIterator(OdbcTestType);
     // defer result_iter.deinit();
@@ -76,7 +76,7 @@ pub fn main() !void {
     // }
 
     var result_iter = try result_set.rowIterator(allocator);
-    defer result_iter.deinit();
+    defer result_iter.deinit(allocator);
 
     var stdout_writer = std.io.getStdOut().writer();
 

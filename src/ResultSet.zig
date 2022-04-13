@@ -313,22 +313,6 @@ pub const Row = struct {
     }
 };
 
-fn ReturnType(comptime T: type) type {
-    switch (@typeInfo(T)) {
-        .Fn => |fn_info| {
-            if (fn_info.return_type) |rt| {
-                return switch (@typeInfo(rt)) {
-                    .ErrorUnion => |rt_error_info| rt_error_info.payload,
-                    else => rt,
-                };
-            } else {
-                @compileError("fromRow must return a value.");
-            }
-        },
-        else => @compileError("fromRow must be a function."),
-    }
-}
-
 fn ItemIterator(comptime ItemType: type) type {
     return struct {
         pub const Self = @This();
@@ -458,13 +442,24 @@ fn ItemIterator(comptime ItemType: type) type {
     };
 }
 
+/// `RowIterator` is used to fetch query results when you don't have a matching `struct` type to hold each row.
+/// This will create a binding for each column in the result set, and then return each row in a `Row` struct
+/// one at a time.
 const RowIterator = struct {
+    /// Represents a single column of the result set. Each `Column` instance can hold *multiple rows* of data for
+    /// that column. The number of rows is limited by the `row_count` parameter passed when initializng `RowIterator`.
     const Column = struct {
         name: []const u8,
         sql_type: odbc.Types.SqlType,
         data: []u8,
         octet_length: usize,
         indicator: []c_longlong,
+
+        fn deinit(column: *Column, allocator: Allocator) void {
+            allocator.free(column.name);
+            allocator.free(column.data);
+            allocator.free(column.indicator);
+        }
     };
 
     columns: []Column,
@@ -472,61 +467,59 @@ const RowIterator = struct {
     row_status: []RowStatus,
     is_first: bool = true,
     current_row: usize = 0,
-    row_count: usize = 0,
     rows_fetched: usize = 0,
 
     statement: odbc.Statement,
-    allocator: Allocator,
 
     pub fn init(allocator: Allocator, statement: odbc.Statement, row_count: usize) !RowIterator {
-        var result: RowIterator = undefined;
-        result.statement = statement;
-        result.allocator = allocator;
-        result.rows_fetched = 0;
-        result.is_first = true;
-        result.row_status = try allocator.alloc(RowStatus, row_count);
-        result.row_count = row_count;
+        const num_columns = try statement.numResultColumns();
+        
+        var columns = try allocator.alloc(Column, num_columns);
+        errdefer {
+            for (columns) |*c| c.deinit(allocator);
+            allocator.free(columns);
+        }
 
-        try result.statement.setAttribute(.{ .RowBindType = odbc.sys.SQL_BIND_BY_COLUMN });
-        try result.statement.setAttribute(.{ .RowArraySize = row_count });
-        try result.statement.setAttribute(.{ .RowStatusPointer = result.row_status });
+        var row_status = try allocator.alloc(RowStatus, row_count);
+        errdefer allocator.free(row_status);
 
-        const num_columns = try result.statement.numResultColumns();
-        result.columns = try allocator.alloc(Column, num_columns);
-        result.row = try Row.init(allocator, num_columns);
+        try statement.setAttribute(.{ .RowBindType = odbc.sys.SQL_BIND_BY_COLUMN });
+        try statement.setAttribute(.{ .RowArraySize = row_count });
+        try statement.setAttribute(.{ .RowStatusPointer = row_status });
 
-        for (result.columns) |*column, column_index| {
-            column.sql_type = (try result.statement.getColumnAttribute(allocator, column_index + 1, .Type)).Type;
-            column.name = (try result.statement.getColumnAttribute(allocator, column_index + 1, .BaseColumnName)).BaseColumnName;
+        for (columns) |*column, column_index| {
+            column.sql_type = (try statement.getColumnAttribute(allocator, column_index + 1, .Type)).Type;
+            column.name = (try statement.getColumnAttribute(allocator, column_index + 1, .BaseColumnName)).BaseColumnName;
 
-            column.octet_length = if (result.statement.getColumnAttribute(allocator, column_index + 1, .OctetLength)) |attr|
+            column.octet_length = if (statement.getColumnAttribute(allocator, column_index + 1, .OctetLength)) |attr|
                 @intCast(usize, attr.OctetLength)
             else |_| 0;
 
             if (column.octet_length == 0) {
-                const length = (try result.statement.getColumnAttribute(allocator, column_index + 1, .Length)).Length;
+                const length = (try statement.getColumnAttribute(allocator, column_index + 1, .Length)).Length;
                 column.octet_length = @intCast(usize, length);
             }
 
             column.data = try allocator.alloc(u8, row_count * column.octet_length);
             column.indicator = try allocator.alloc(c_longlong, row_count);
 
-            try result.statement.bindColumn(@intCast(u16, column_index + 1), column.sql_type.defaultCType(), column.data, column.indicator.ptr, column.octet_length);
+            try statement.bindColumn(@intCast(u16, column_index + 1), column.sql_type.defaultCType(), column.data, column.indicator.ptr, column.octet_length);
         }
 
-        return result;
+        return RowIterator{
+            .statement = statement,
+            .row_status = row_status,
+            .columns = columns,
+            .row = try Row.init(allocator, num_columns),
+        };
     }
 
-    pub fn deinit(self: *RowIterator) void {
-        for (self.columns) |*column| {
-            self.allocator.free(column.name);
-            self.allocator.free(column.data);
-            self.allocator.free(column.indicator);
-        }
+    pub fn deinit(self: *RowIterator, allocator: Allocator) void {
+        for (self.columns) |*column| column.deinit(allocator);
 
-        self.allocator.free(self.columns);
-        self.allocator.free(self.row_status);
-        self.row.deinit(self.allocator);
+        allocator.free(self.columns);
+        allocator.free(self.row_status);
+        self.row.deinit(allocator);
     }
 
     pub fn next(self: *RowIterator) !?*Row {
@@ -542,8 +535,11 @@ const RowIterator = struct {
                 self.current_row = 0;
             }
 
-            while (self.current_row < self.rows_fetched and self.current_row < self.row_count) : (self.current_row += 1) {
-                switch (self.row_status[self.current_row]) {
+            for (self.row_status[self.current_row..]) |row_status| {
+                defer self.current_row += 1;
+                if (self.current_row >= self.rows_fetched) break;
+
+                switch (row_status) {
                     .Success, .SuccessWithInfo, .Error => {
                         for (self.row.columns) |*row_column, column_index| {
                             const current_column = self.columns[column_index];
@@ -556,11 +552,11 @@ const RowIterator = struct {
                             row_column.sql_type = current_column.sql_type;
                         }
 
-                        self.current_row += 1;
                         return &self.row;
                     },
                     else => {},
                 }
+
             }
         }
     }
