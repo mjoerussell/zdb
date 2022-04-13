@@ -214,9 +214,9 @@ pub fn tables(cursor: *Cursor, allocator: Allocator, catalog_name: ?[]const u8, 
 
 pub fn tablePrivileges(cursor: *Cursor, allocator: Allocator, catalog_name: ?[]const u8, schema_name: ?[]const u8, table_name: []const u8) ![]TablePrivileges {
     try cursor.statement.tablePrivileges(catalog_name, schema_name, table_name);
-    var result_set = ResultSet.init(allocator, cursor.statement);
+    var result_set = ResultSet.init(cursor.statement);
 
-    var priv_iter = try result_set.itemIterator(TablePrivileges);
+    var priv_iter = try result_set.itemIterator(TablePrivileges, allocator);
     defer priv_iter.deinit();
 
     var priv_result = std.ArrayList(TablePrivileges).init(allocator);
@@ -229,6 +229,27 @@ pub fn tablePrivileges(cursor: *Cursor, allocator: Allocator, catalog_name: ?[]c
     }
 
     return priv_result.toOwnedSlice();
+}
+
+pub fn catalogs(cursor: *Cursor, allocator: Allocator) ![][]const u8 {
+    try cursor.statement.getAllCatalogs();
+    var catalog_names = std.ArrayList([]const u8).init(allocator);
+    errdefer catalog_names.deinit();
+
+    var result_set = ResultSet.init(cursor.statement);
+    var iter = try result_set.rowIterator(allocator);
+    defer iter.deinit(allocator);
+
+    while (true) {
+        var result = iter.next() catch continue;
+        var row = result orelse break;
+        const catalog_name = row.get([]const u8, "TABLE_CAT") catch continue;
+
+        const catalog_name_dupe = try allocator.dupe(u8, catalog_name);
+        try catalog_names.append(catalog_name_dupe);
+    }
+
+    return catalog_names.toOwnedSlice();
 }
 
 /// Bind a single value to a SQL parameter. If `self.parameters` is `null`, this does nothing
