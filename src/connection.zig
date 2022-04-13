@@ -168,6 +168,10 @@ pub fn deinit(self: *Connection) void {
     self.environment.deinit() catch {};
 }
 
+pub fn disconnect(self: *Connection) void {
+    self.connection.disconnect() catch {};
+}
+
 pub fn setCommitMode(self: *Connection, mode: CommitMode) !void {
     try self.connection.setAttribute(.{ .Autocommit = mode == .auto });
 }
