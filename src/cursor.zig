@@ -54,7 +54,7 @@ pub fn executeDirect(cursor: *Cursor, allocator: Allocator, sql_statement: []con
     try cursor.parameters.reset(allocator, num_params);
     
     try cursor.bindParameters(allocator, parameters);
-    _ = try cursor.statement.executeDirect(sql_statement);
+    try cursor.statement.executeDirect(sql_statement);
 
     return ResultSet.init(cursor.statement);
 }
