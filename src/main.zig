@@ -40,8 +40,8 @@ pub fn main() !void {
 
     try connection.setCommitMode(.manual);
 
-    var cursor = try connection.getCursor();
-    defer cursor.deinit() catch {};
+    var cursor = try connection.getCursor(allocator);
+    defer cursor.deinit(allocator) catch {};
 
     // _ = try cursor.insert(
     //     OdbcTestType,
@@ -65,7 +65,7 @@ pub fn main() !void {
     //     \\WHERE name = ? OR age < ?
     // );
 
-    var result_set = try cursor.executeDirect(allocator, "select * from odbc_zig_test", .{});
+    var result_set = try cursor.executeDirect(allocator, "select * from odbc_zig_test where age > ?", .{30});
 
     // var result_iter = try result_set.itemIterator(OdbcTestType);
     // defer result_iter.deinit();
