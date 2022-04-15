@@ -77,7 +77,7 @@ pub fn prepare(cursor: *Cursor, allocator: Allocator, sql_statement: []const u8,
     try cursor.statement.prepare(sql_statement);
 }
 
-pub fn insert(cursor: *Cursor, allocator: Allocator, comptime insert_statement: []const u8, values: anytype) !usize {
+pub fn insert(cursor: *Cursor, allocator: Allocator, insert_statement: []const u8, values: anytype) !usize {
     // @todo Try using arrays of parameters for bulk ops
     const DataType = switch (@typeInfo(@TypeOf(values))) {
         .Pointer => |info| switch (info.size) {
@@ -90,8 +90,8 @@ pub fn insert(cursor: *Cursor, allocator: Allocator, comptime insert_statement: 
     AssertInsertable(DataType);
 
     const num_params = blk: {
-        comptime var count: usize = 0;
-        inline for (insert_statement) |c| {
+        var count: usize = 0;
+        for (insert_statement) |c| {
             if (c == '?') count += 1;
         }
         break :blk count;
@@ -118,33 +118,33 @@ pub fn insert(cursor: *Cursor, allocator: Allocator, comptime insert_statement: 
                 else => unreachable,
             },
             .Struct => |struct_tag| {
-                comptime if (struct_tag.fields.len != num_params)
-                    @compileError("Struct type " ++ @typeName(DataType) ++ " cannot be inserted as it has the wrong number of fields.");
+                if (struct_tag.fields.len != num_params) return error.WrongParamCount;
+
                 inline for (std.meta.fields(DataType)) |field, param_index| {
                     try cursor.bindParameter(allocator, param_index + 1, @field(value, field.name));
                 }
             },
             .Array => |array_tag| {
-                comptime if (array_tag.len != num_params) @compileError("Array type " ++ @typeName(DataType) ++ " cannot be inserted because it has the wrong length");
+                if (array_tag.len != num_params) return error.WrongParamCount;
                 for (value) |val, param_index| {
                     try cursor.bindParameter(allocator, param_index + 1, val);
                 }
             },
             .Optional => {
-                comptime if (num_params != 1) @compileError("Cannot insert Optional type - statement only has one parameter.");
+                if (num_params != 1) return error.WrongParamCount;
                 try cursor.bindParameter(allocator, value_index + 1, value);
             },
             .Enum => {
-                comptime if (num_params != 1) @compileError("Cannot insert Enum type - statement only has one parameter.");
+                if (num_params != 1) return error.WrongParamCount;
                 const enum_value = @enumToInt(value);
                 try cursor.bindParameter(allocator, value_index + 1, enum_value);
             },
             .EnumLiteral => {
-                comptime if (num_params != 1) @compileError("Cannot insert EnumLiteral type - statement only has one parameter.");
+                if (num_params != 1) return error.WrongParamCount;
                 try cursor.bindParameter(allocator, value_index + 1, @tagName(value));
             },
             .Int, .Float, .ComptimeInt, .ComptimeFloat, .Bool => {
-                comptime if (num_params != 1) @compileError("Cannot insert " ++ @typeName(DataType) ++ " type - statement only has one parameter.");
+                if (num_params != 1) return error.WrongParamCount;
                 try cursor.bindParameter(allocator, value_index + 1, value);
             },
             else => unreachable,
