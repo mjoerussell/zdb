@@ -69,6 +69,12 @@ pub fn main() !void {
 }
 ```
 
+You can also use a configuration struct to connect:
+
+```zig  
+try connection.connectWithConfig(allocator, .{ .driver = "PostgeSQL Unicode(x64)", .dsn = "PostgeSQL35W" });
+```
+
 ### Execute Statements
 
 Arbitrary SQL statements can be executed with `Cursor.executeDirect`. Prepared statements can also be created and then executed with `Cursor.prepare` and `Cursor.execute`, respectively.
