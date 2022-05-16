@@ -8,7 +8,7 @@ pub fn main() anyerror!void {
 
     // In this example we'll create a new database and reconnect to it.
     // The beginning is the same as basic_connect
-    var basic_connect_config = Connection.ConnectionInfo.Config{
+    var basic_connect_config = Connection.ConnectionConfig{
         .driver = "PostgreSQL Unicode(x64)",
         .database = "postgres",
         .server = "localhost",
@@ -17,17 +17,11 @@ pub fn main() anyerror!void {
         .password = "postgres",
     };
 
-    var pg_connection_info = try Connection.ConnectionInfo.initWithConfig(allocator, basic_connect_config);
-    defer pg_connection_info.deinit();
-
-    const pg_connection_string = try pg_connection_info.toConnectionString(allocator);
-    defer allocator.free(pg_connection_string);
-    
     var conn = try Connection.init(.{});
     defer conn.deinit();
 
     {
-        try conn.connectExtended(pg_connection_string);
+        try conn.connectWithConfig(allocator, basic_connect_config);
         defer conn.disconnect();
 
         var cursor = try conn.getCursor(allocator);
@@ -43,22 +37,19 @@ pub fn main() anyerror!void {
 
     // Now that the new DB was created we can connect to it. We'll use the same options as the original connection,
     // except with the database field set to "create_example".
-    basic_connect_config.database = "create_example";
-    var example_connection_info = try Connection.ConnectionInfo.initWithConfig(allocator, basic_connect_config);
-    defer example_connection_info.deinit();
-
-    const example_connection_string = try example_connection_info.toConnectionString(allocator);
-    defer allocator.free(example_connection_string);
-
+    var db_connect_config = basic_connect_config;
+    db_connect_config.database = "create_example";
+    
     {
         // For now, we'll just connect and disconnect without doing anything.
-        try conn.connectExtended(example_connection_string);
-        defer conn.disconnect();
+        try conn.connectWithConfig(allocator, db_connect_config);
+        conn.disconnect();
     }
 
     {
         // Now we'll clean up the temp table
-        try conn.connectExtended(pg_connection_string);
+        try conn.connectWithConfig(allocator, basic_connect_config);
+        defer conn.disconnect();
 
         var cursor = try conn.getCursor(allocator);
         defer cursor.deinit(allocator) catch {};

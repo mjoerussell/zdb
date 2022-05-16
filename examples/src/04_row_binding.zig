@@ -8,7 +8,7 @@ pub fn main() anyerror!void {
 
     // This example is the same as create_and_query_table, except we're going to see how to use RowIterator to fetch results instead of
     // ItemIterator.
-    var basic_connect_config = Connection.ConnectionInfo.Config{
+    var basic_connect_config = Connection.ConnectionConfig{
         .driver = "PostgreSQL Unicode(x64)",
         .database = "postgres",
         .server = "localhost",
@@ -17,17 +17,11 @@ pub fn main() anyerror!void {
         .password = "postgres",
     };
 
-    var pg_connection_info = try Connection.ConnectionInfo.initWithConfig(allocator, basic_connect_config);
-    defer pg_connection_info.deinit();
-
-    const pg_connection_string = try pg_connection_info.toConnectionString(allocator);
-    defer allocator.free(pg_connection_string);
-    
     var conn = try Connection.init(.{});
     defer conn.deinit();
 
     {
-        try conn.connectExtended(pg_connection_string);
+        try conn.connectWithConfig(allocator, basic_connect_config);
         defer conn.disconnect();
 
         var cursor = try conn.getCursor(allocator);
@@ -36,15 +30,11 @@ pub fn main() anyerror!void {
         _ = try cursor.executeDirect(allocator, "CREATE DATABASE create_example WITH OWNER = postgres", .{});
     }
 
-    basic_connect_config.database = "create_example";
-    var example_connection_info = try Connection.ConnectionInfo.initWithConfig(allocator, basic_connect_config);
-    defer example_connection_info.deinit();
-
-    const example_connection_string = try example_connection_info.toConnectionString(allocator);
-    defer allocator.free(example_connection_string);
-
+    var db_connect_config = basic_connect_config;
+    db_connect_config.database = "create_example";
+    
     {
-        try conn.connectExtended(example_connection_string);
+        try conn.connectWithConfig(allocator, db_connect_config);
         defer conn.disconnect();
 
         var cursor = try conn.getCursor(allocator);
@@ -115,7 +105,8 @@ pub fn main() anyerror!void {
     }
 
     {
-        try conn.connectExtended(pg_connection_string);
+        try conn.connectWithConfig(allocator, db_connect_config);
+        defer conn.disconnect();
 
         var cursor = try conn.getCursor(allocator);
         defer cursor.deinit(allocator) catch {};
