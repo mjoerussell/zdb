@@ -9,7 +9,7 @@ pub fn main() anyerror!void {
     // In this example we'll create a new DB just like create_and_connect, but we'll also perform some inserts and
     // queries on a new table.
     // Start by connecting and initializing just like before
-    var basic_connect_config = Connection.ConnectionInfo.Config{
+    var basic_connect_config = Connection.ConnectionConfig{
         .driver = "PostgreSQL Unicode(x64)",
         .database = "postgres",
         .server = "localhost",
@@ -18,17 +18,12 @@ pub fn main() anyerror!void {
         .password = "postgres",
     };
 
-    var pg_connection_info = try Connection.ConnectionInfo.initWithConfig(allocator, basic_connect_config);
-    defer pg_connection_info.deinit();
-
-    const pg_connection_string = try pg_connection_info.toConnectionString(allocator);
-    defer allocator.free(pg_connection_string);
-    
     var conn = try Connection.init(.{});
     defer conn.deinit();
 
     {
-        try conn.connectExtended(pg_connection_string);
+        // try conn.connectExtended(pg_connection_string);
+        try conn.connectWithConfig(allocator, basic_connect_config);
         defer conn.disconnect();
 
         var cursor = try conn.getCursor(allocator);
@@ -37,16 +32,13 @@ pub fn main() anyerror!void {
         _ = try cursor.executeDirect(allocator, "CREATE DATABASE create_example WITH OWNER = postgres", .{});
     }
 
-    basic_connect_config.database = "create_example";
-    var example_connection_info = try Connection.ConnectionInfo.initWithConfig(allocator, basic_connect_config);
-    defer example_connection_info.deinit();
-
-    const example_connection_string = try example_connection_info.toConnectionString(allocator);
-    defer allocator.free(example_connection_string);
+    var example_connect_config = basic_connect_config;
+    example_connect_config.database = "create_example";
 
     {
         // Connect to the DB create_example
-        try conn.connectExtended(example_connection_string);
+        // try conn.connectExtended(example_connection_string);
+        try conn.connectWithConfig(allocator, example_connect_config);
         defer conn.disconnect();
 
         var cursor = try conn.getCursor(allocator);
@@ -135,7 +127,7 @@ pub fn main() anyerror!void {
     }
 
     {
-        try conn.connectExtended(pg_connection_string);
+        try conn.connectWithConfig(allocator, basic_connect_config);
 
         var cursor = try conn.getCursor(allocator);
         defer cursor.deinit(allocator) catch {};
