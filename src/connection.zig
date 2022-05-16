@@ -24,13 +24,13 @@ pub const ConnectionConfig = struct {
 
         var string_builder = buffer.writer();
 
-        if (config.driver)      |driver| try string_builder.print("DRIVER={s};", .{driver});
-        if (config.dsn)         |dsn| try string_builder.print("DSN={s};", .{dsn});
-        if (config.database)    |database| try string_builder.print("DATABASE={s};", .{database});
-        if (config.server)      |server| try string_builder.print("SERVER={s};", .{server});
-        if (config.port)        |port| try string_builder.print("PORT={s};", .{port});
-        if (config.username)    |username| try string_builder.print("UID={s};", .{username});
-        if (config.password)    |password| try string_builder.print("PWD={s};", .{password});
+        if (config.driver)   |driver|   try string_builder.print("DRIVER={s};", .{driver});
+        if (config.dsn)      |dsn|      try string_builder.print("DSN={s};", .{dsn});
+        if (config.database) |database| try string_builder.print("DATABASE={s};", .{database});
+        if (config.server)   |server|   try string_builder.print("SERVER={s};", .{server});
+        if (config.port)     |port|     try string_builder.print("PORT={s};", .{port});
+        if (config.username) |username| try string_builder.print("UID={s};", .{username});
+        if (config.password) |password| try string_builder.print("PWD={s};", .{password});
 
         return buffer.toOwnedSlice();
     }
