@@ -1,3 +1,3 @@
 *           text=false
 
-*.zig       text
+*.zig       text eol=lf
