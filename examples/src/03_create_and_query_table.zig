@@ -18,6 +18,11 @@ pub fn main() anyerror!void {
         .password = "postgres",
     };
 
+    const test_connect_string = try basic_connect_config.getConnectionString(allocator);
+    defer allocator.free(test_connect_string);
+
+    std.debug.print("Conn String: {s}\n", .{test_connect_string});
+
     var conn = try Connection.init(.{});
     defer conn.deinit();
 
@@ -29,7 +34,14 @@ pub fn main() anyerror!void {
         var cursor = try conn.getCursor(allocator);
         defer cursor.deinit(allocator) catch {};
 
-        _ = try cursor.executeDirect(allocator, "CREATE DATABASE create_example WITH OWNER = postgres", .{});
+        _ = cursor.executeDirect(allocator, "CREATE DATABASE create_example WITH OWNER = postgres", .{}) catch |err| {
+            const recs = cursor.getErrors(allocator);
+            defer allocator.free(recs);
+            for (recs) |rec| {
+                std.debug.print("{s}\n", .{rec.error_message});
+            }
+            return err;
+        };
     }
 
     var example_connect_config = basic_connect_config;
@@ -132,7 +144,15 @@ pub fn main() anyerror!void {
         var cursor = try conn.getCursor(allocator);
         defer cursor.deinit(allocator) catch {};
 
-        _ = try cursor.executeDirect(allocator, "DROP DATABASE create_example", .{});
+        _ = cursor.executeDirect(allocator, "DROP DATABASE create_example", .{}) catch |err| {
+            std.debug.print("Error dropping database: {}\n", .{err});
+            const recs = cursor.getErrors(allocator);
+            defer allocator.free(recs);
+            for (recs) |rec| {
+                std.debug.print("Message: {s}\n", .{rec.error_message});
+            }
+            return err;
+        };
     }
 
 }

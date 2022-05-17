@@ -24,9 +24,9 @@ pub const ConnectionConfig = struct {
 
         var string_builder = buffer.writer();
 
-        try string_builder.writeAll("ODBC;");
+        // try string_builder.writeAll("ODBC;");
 
-        if (config.driver)   |driver|   try string_builder.print("DRIVER={s};", .{driver});
+        if (config.driver)   |driver|   try string_builder.print("DRIVER={{{s}}};", .{driver});
         if (config.dsn)      |dsn|      try string_builder.print("DSN={s};", .{dsn});
         if (config.database) |database| try string_builder.print("DATABASE={s};", .{database});
         if (config.server)   |server|   try string_builder.print("SERVER={s};", .{server});
