@@ -6,7 +6,7 @@ pub fn EraseComptime(comptime T: type) type {
     return switch (T) {
         comptime_int => i64,
         comptime_float => f64,
-        else => T
+        else => T,
     };
 }
 

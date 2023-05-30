@@ -42,7 +42,7 @@ pub fn close(self: *Cursor) !void {
     };
 }
 
-/// Execute a SQL statement and return the result set. SQL query parameters can be passed with the `parameters` argument. 
+/// Execute a SQL statement and return the result set. SQL query parameters can be passed with the `parameters` argument.
 /// This is the fastest way to execute a SQL statement once.
 pub fn executeDirect(cursor: *Cursor, allocator: Allocator, sql_statement: []const u8, parameters: anytype) !ResultSet {
     var num_params: usize = 0;
@@ -52,7 +52,7 @@ pub fn executeDirect(cursor: *Cursor, allocator: Allocator, sql_statement: []con
 
     if (num_params != parameters.len) return error.InvalidNumParams;
     try cursor.parameters.reset(allocator, num_params);
-    
+
     try cursor.bindParameters(allocator, parameters);
     try cursor.statement.executeDirect(sql_statement);
 
@@ -77,6 +77,26 @@ pub fn prepare(cursor: *Cursor, allocator: Allocator, sql_statement: []const u8,
     try cursor.statement.prepare(sql_statement);
 }
 
+/// `insert` is a helper function for inserting data. It will prepare the statement you provide and then
+/// execute it once for each value in the `values` array. It's not fundamentally different than this:
+///
+/// ```zig
+/// const values = [_][2]u32{ [_]u32{0, 1}, [_]u32{1, 2}, [_]u32{2, 3}, [_]u32{3, 4}, };
+///
+/// try cursor.prepare(allocator, "INSERT INTO table VALUES (?, ?)");
+/// for (values) |v| {
+///    try cursor.bindParameters(allocator, v);
+///    try cursor.execute();
+/// }
+/// ```
+///
+/// `insert` will do some work to make sure that each value binds in the appropriate way regardless
+/// of its type.
+///
+/// `insert` is named as such because it's intended to be used when inserting data, however there is nothing
+/// here requiring you to use this for insert statements. You could use it for other things, like regular
+/// SELECT statements. It's important to keep in mind, though, that there will be no way to fetch result
+/// sets for any query other than the last.
 pub fn insert(cursor: *Cursor, allocator: Allocator, insert_statement: []const u8, values: anytype) !usize {
     // @todo Try using arrays of parameters for bulk ops
     const DataType = switch (@typeInfo(@TypeOf(values))) {
@@ -102,12 +122,12 @@ pub fn insert(cursor: *Cursor, allocator: Allocator, insert_statement: []const u
 
     var num_rows_inserted: usize = 0;
 
-    for (values) |value, value_index| {
+    for (values, 0..) |value, value_index| {
         switch (@typeInfo(DataType)) {
             .Pointer => |pointer_tag| switch (pointer_tag.size) {
                 .Slice => {
                     if (value.len < num_params) return error.WrongParamCount;
-                    for (value) |param, param_index| {
+                    for (value, 0..) |param, param_index| {
                         try cursor.bindParameter(allocator, param_index + 1, param);
                     }
                 },
@@ -120,13 +140,13 @@ pub fn insert(cursor: *Cursor, allocator: Allocator, insert_statement: []const u
             .Struct => |struct_tag| {
                 if (struct_tag.fields.len != num_params) return error.WrongParamCount;
 
-                inline for (std.meta.fields(DataType)) |field, param_index| {
+                inline for (std.meta.fields(DataType), 0..) |field, param_index| {
                     try cursor.bindParameter(allocator, param_index + 1, @field(value, field.name));
                 }
             },
             .Array => |array_tag| {
                 if (array_tag.len != num_params) return error.WrongParamCount;
-                for (value) |val, param_index| {
+                for (value, 0..) |val, param_index| {
                     try cursor.bindParameter(allocator, param_index + 1, val);
                 }
             },
@@ -269,14 +289,14 @@ pub fn bindParameter(cursor: *Cursor, allocator: Allocator, index: usize, parame
 }
 
 /// Bind a list of parameters to SQL parameters. The first item in the list will be bound
-/// to the parameter at index 1, the second to index 2, etc. 
+/// to the parameter at index 1, the second to index 2, etc.
 ///
-/// Calling this function clears all existing parameters, and if an empty list is passed in 
+/// Calling this function clears all existing parameters, and if an empty list is passed in
 /// will not re-initialize them.
 pub fn bindParameters(cursor: *Cursor, allocator: Allocator, parameters: anytype) !void {
     try cursor.parameters.reset(allocator, parameters.len);
 
-    inline for (parameters) |param, index| {
+    inline for (parameters, 0..) |param, index| {
         try cursor.bindParameter(allocator, index + 1, param);
     }
 }
@@ -288,7 +308,7 @@ pub fn getErrors(cursor: *Cursor, allocator: Allocator) []odbc.Error.DiagnosticR
 /// Assert that the type `T` can be used as an insert parameter. Deeply checks types that have child types when necessary.
 fn AssertInsertable(comptime T: type) void {
     switch (@typeInfo(T)) {
-        .Frame, .AnyFrame, .Void, .NoReturn, .Undefined, .ErrorUnion, .ErrorSet, .Fn, .BoundFn, .Union, .Vector, .Opaque, .Null, .Type => @compileError(@tagName(std.meta.activeTag(@typeInfo(T))) ++ " types cannot be used as insert parameters"),
+        .Frame, .AnyFrame, .Void, .NoReturn, .Undefined, .ErrorUnion, .ErrorSet, .Fn, .Union, .Vector, .Opaque, .Null, .Type => @compileError(@tagName(std.meta.activeTag(@typeInfo(T))) ++ " types cannot be used as insert parameters"),
         .Pointer => |pointer_tag| switch (pointer_tag.size) {
             .Slice, .One => AssertInsertable(pointer_tag.child),
             else => @compileError(@tagName(std.meta.activeTag(pointer_tag.size)) ++ "-type pointers cannot be used as insert parameters"),

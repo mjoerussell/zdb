@@ -26,11 +26,11 @@ pub const ConnectionConfig = struct {
 
         // try string_builder.writeAll("ODBC;");
 
-        if (config.driver)   |driver|   try string_builder.print("DRIVER={{{s}}};", .{driver});
-        if (config.dsn)      |dsn|      try string_builder.print("DSN={s};", .{dsn});
+        if (config.driver) |driver| try string_builder.print("DRIVER={{{s}}};", .{driver});
+        if (config.dsn) |dsn| try string_builder.print("DSN={s};", .{dsn});
         if (config.database) |database| try string_builder.print("DATABASE={s};", .{database});
-        if (config.server)   |server|   try string_builder.print("SERVER={s};", .{server});
-        if (config.port)     |port|     try string_builder.print("PORT={s};", .{port});
+        if (config.server) |server| try string_builder.print("SERVER={s};", .{server});
+        if (config.port) |port| try string_builder.print("PORT={s};", .{port});
         if (config.username) |username| try string_builder.print("UID={s};", .{username});
         if (config.password) |password| try string_builder.print("PWD={s};", .{password});
 
@@ -56,7 +56,7 @@ pub fn init(config: ConnectionOptions) !Connection {
     try connection.environment.setOdbcVersion(config.version);
 
     connection.connection = try odbc.Connection.init(&connection.environment);
-    
+
     return connection;
 }
 
@@ -74,7 +74,7 @@ pub fn connectWithConfig(conn: *Connection, allocator: Allocator, connection_con
     try conn.connection.connectExtended(connection_string, .NoPrompt);
 }
 
-/// Connect using a pre-created connection string. 
+/// Connect using a pre-created connection string.
 pub fn connectExtended(conn: *Connection, connection_string: []const u8) !void {
     try conn.connection.connectExtended(connection_string, .NoPrompt);
 }
@@ -116,5 +116,5 @@ test "ConnectionInfo" {
     const connection_string = try connection_info.getConnectionString(allocator);
     defer allocator.free(connection_string);
 
-    try std.testing.expectEqualStrings("DRIVER=A Driver;DSN=Some DSN Value;UID=User;PWD=Password", connection_string);    
+    try std.testing.expectEqualStrings("DRIVER=A Driver;DSN=Some DSN Value;UID=User;PWD=Password", connection_string);
 }

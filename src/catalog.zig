@@ -44,11 +44,11 @@ pub const Column = struct {
             const target_type = if (field_info == .Optional) field_info.Optional.child else field.field_type;
 
             switch (@typeInfo(target_type)) {
-                .Enum => try writer.print("  {s}: {s}\n", .{field.name, @tagName(@field(self, field.name))}),
+                .Enum => try writer.print("  {s}: {s}\n", .{ field.name, @tagName(@field(self, field.name)) }),
                 else => {
                     const format_string = comptime if (std.meta.trait.isZigString(target_type)) "  {s}: {s}\n" else "  {s}: {}\n";
-                    try writer.print(format_string, .{field.name, @field(self, field.name)});
-                }
+                    try writer.print(format_string, .{ field.name, @field(self, field.name) });
+                },
             }
         }
         try writer.writeAll("}");
@@ -80,11 +80,11 @@ pub const Table = struct {
             const target_type = if (field_info == .Optional) field_info.Optional.child else field.field_type;
 
             switch (@typeInfo(target_type)) {
-                .Enum => try writer.print("  {s}: {s}\n", .{field.name, @tagName(@field(self, field.name))}),
+                .Enum => try writer.print("  {s}: {s}\n", .{ field.name, @tagName(@field(self, field.name)) }),
                 else => {
                     const format_string = comptime if (std.meta.trait.isZigString(target_type)) "  {s}: {s}\n" else "  {s}: {}\n";
-                    try writer.print(format_string, .{field.name, @field(self, field.name)});
-                }
+                    try writer.print(format_string, .{ field.name, @field(self, field.name) });
+                },
             }
         }
         try writer.writeAll("}");
@@ -120,11 +120,11 @@ pub const TablePrivileges = struct {
             const target_type = if (field_info == .Optional) field_info.Optional.child else field.field_type;
 
             switch (@typeInfo(target_type)) {
-                .Enum => try writer.print("  {s}: {s}\n", .{field.name, @tagName(@field(self, field.name))}),
+                .Enum => try writer.print("  {s}: {s}\n", .{ field.name, @tagName(@field(self, field.name)) }),
                 else => {
                     const format_string = comptime if (std.meta.trait.isZigString(target_type)) "  {s}: {s}\n" else "  {s}: {}\n";
-                    try writer.print(format_string, .{field.name, @field(self, field.name)});
-                }
+                    try writer.print(format_string, .{ field.name, @field(self, field.name) });
+                },
             }
         }
         try writer.writeAll("}");

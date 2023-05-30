@@ -32,7 +32,7 @@ pub fn main() anyerror!void {
 
     var db_connect_config = basic_connect_config;
     db_connect_config.database = "create_example";
-    
+
     {
         try conn.connectWithConfig(allocator, db_connect_config);
         defer conn.disconnect();
@@ -40,16 +40,14 @@ pub fn main() anyerror!void {
         var cursor = try conn.getCursor(allocator);
         defer cursor.deinit(allocator) catch {};
 
-        _ = try cursor.executeDirect(
-            allocator,
+        _ = try cursor.executeDirect(allocator,
             \\CREATE TABLE zdb_test
             \\(
             \\  id serial primary key,
             \\  first_name text,
             \\  age integer default 0
             \\)
-            , .{}
-        );
+        , .{});
 
         const ZdbTest = struct {
             first_name: []const u8,
@@ -60,9 +58,10 @@ pub fn main() anyerror!void {
             allocator,
             \\INSERT INTO zdb_test (first_name, age)
             \\VALUES (?, ?)
-            , [_]ZdbTest{ 
-                .{ .first_name = "Joe", .age = 20 }, 
-                .{ .first_name = "Jane", .age = 35 }, 
+        ,
+            [_]ZdbTest{
+                .{ .first_name = "Joe", .age = 20 },
+                .{ .first_name = "Jane", .age = 35 },
                 .{ .first_name = "GiGi", .age = 85 },
             },
         );
@@ -82,7 +81,7 @@ pub fn main() anyerror!void {
             // Columns can also be fetched by index. Column indicies are 1-based.
             const first_name = try row.getWithIndex([]const u8, 2);
 
-            std.debug.print("{}: {s}\n", .{id, first_name});
+            std.debug.print("{}: {s}\n", .{ id, first_name });
 
             // The main use of RowIterator is for getting result sets from unknown queries, where you can't specify
             // a struct type to use ahead of time. This means that it's also very likely that you won't know what
@@ -101,7 +100,6 @@ pub fn main() anyerror!void {
             // We'll also print the age column using its index rather than the column name
             try row.printColumnAtIndex(3, .{ .integer = "Hex Value: {x}\n" }, stdout_writer);
         }
-
     }
 
     {
@@ -111,7 +109,13 @@ pub fn main() anyerror!void {
         var cursor = try conn.getCursor(allocator);
         defer cursor.deinit(allocator) catch {};
 
-        _ = try cursor.executeDirect(allocator, "DROP DATABASE create_example", .{});
-    }
+        _ = cursor.executeDirect(allocator, "DROP DATABASE create_example", .{}) catch {
+            const errors = cursor.getErrors(allocator);
+            defer allocator.free(errors);
 
+            for (errors) |e| {
+                std.debug.print("Error: {s}\n", .{e.error_message});
+            }
+        };
+    }
 }
