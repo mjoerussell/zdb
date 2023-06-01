@@ -148,13 +148,13 @@ test "add parameter to ParameterBucket" {
     const allocator = std.testing.allocator;
 
     var bucket = try ParameterBucket.init(allocator, 5);
-    defer bucket.deinit();
+    defer bucket.deinit(allocator);
 
     var param_value: u32 = 10;
 
-    const param = try bucket.addParameter(0, param_value);
+    const param = try bucket.set(allocator, param_value, 0);
 
-    const param_data = @ptrCast([*]u8, param.param)[0..@intCast(usize, param.indicator.*)];
+    const param_data = @ptrCast([*]u8, param.data)[0..@intCast(usize, param.indicator.*)];
     try std.testing.expectEqualSlices(u8, std.mem.toBytes(param_value)[0..], param_data);
 }
 
@@ -162,12 +162,12 @@ test "add string parameter to ParameterBucket" {
     const allocator = std.testing.allocator;
 
     var bucket = try ParameterBucket.init(allocator, 5);
-    defer bucket.deinit();
+    defer bucket.deinit(allocator);
 
     var param_value = "some string value";
 
-    const param = try bucket.addParameter(0, param_value);
+    const param = try bucket.set(allocator, param_value, 0);
 
-    const param_data = @ptrCast([*]u8, param.param)[0..@intCast(usize, param.indicator.*)];
+    const param_data = @ptrCast([*]u8, param.data)[0..@intCast(usize, param.indicator.*)];
     try std.testing.expectEqualStrings(param_value, param_data);
 }

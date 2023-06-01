@@ -4,9 +4,8 @@ const buildOdbc = @import("zig-odbc/build_pkg.zig").buildPkg;
 const buildZdb = @import("build_pkg.zig").buildPkg;
 
 const test_files = .{
-    "src/main.zig",
-    "src/parameter.zig",
-    "src/connection.zig",
+    "src/ParameterBucket.zig",
+    "src/Connection.zig",
 };
 
 const Example = struct {
