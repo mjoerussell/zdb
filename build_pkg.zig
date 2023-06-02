@@ -1,9 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const LibExeObjStep = std.build.LibExeObjStep;
-const Pkg = std.build.Pkg;
+const CompileStep = std.build.CompileStep;
 
-pub fn buildPkg(exe: *LibExeObjStep, package_name: []const u8) void {
+pub fn buildPkg(b: *std.Build, exe: *CompileStep, package_name: []const u8, zdb_path: []const u8) !void {
     exe.linkLibC();
 
     const odbc_library_name = if (builtin.os.tag == .windows) "odbc32" else "odbc";
@@ -14,16 +13,22 @@ pub fn buildPkg(exe: *LibExeObjStep, package_name: []const u8) void {
 
     exe.linkSystemLibrary(odbc_library_name);
 
-    const self_pkg = Pkg{
-        .name = package_name, 
-        .path = .{ .path = "zdb/src/zdb.zig" },
-        .dependencies = &.{
-            Pkg{
-                .name = "odbc",
-                .path = .{ .path = "zdb/zig-odbc/src/lib.zig" },
-            }
-        }
-    };
+    const allocator = b.allocator;
 
-    exe.addPackage(self_pkg);
+    const zdb_root = try std.fmt.allocPrint(allocator, "{s}/src/zdb.zig", .{zdb_path});
+    const zig_odbc_root = try std.fmt.allocPrint(allocator, "{s}/zig-odbc/src/lib.zig", .{zdb_path});
+
+    const module = b.createModule(.{
+        .source_file = .{ .path = zdb_root },
+        .dependencies = &[_]std.Build.ModuleDependency{
+            .{
+                .name = "odbc",
+                .module = b.createModule(.{
+                    .source_file = .{ .path = zig_odbc_root },
+                }),
+            },
+        },
+    });
+
+    exe.addModule(package_name, module);
 }

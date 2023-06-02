@@ -17,18 +17,18 @@ pub fn main() anyerror!void {
         .password = "postgres",
     };
 
-    // Before connecting, initialize a connection struct with the default settings.    
+    // Before connecting, initialize a connection struct with the default settings.
     var conn = try Connection.init(.{});
     defer conn.deinit();
 
-    // connectWithConfig is used to connect to a data source using a connection string, which is generated based on the ConnectionConfig. 
+    // connectWithConfig is used to connect to a data source using a connection string, which is generated based on the ConnectionConfig.
     // You can also connect to a data source using a DSN name, username, and password with connection.connect()
     try conn.connectWithConfig(allocator, connection_info);
 
     // In order to execute statements, you have to create a Cursor object.
     var cursor = try conn.getCursor(allocator);
     defer cursor.deinit(allocator) catch {};
-    
+
     // We'll run a simple operation on this DB to start - simply querying all the database names assocaiated with this
     // connection. Since we connected to a specific DB above, this should only return "postgres"
     var catalogs = try cursor.catalogs(allocator);
@@ -39,5 +39,4 @@ pub fn main() anyerror!void {
     for (catalogs) |cat| {
         std.log.debug("{s}", .{cat});
     }
-
 }

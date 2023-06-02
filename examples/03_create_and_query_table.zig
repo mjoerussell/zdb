@@ -27,7 +27,6 @@ pub fn main() anyerror!void {
     defer conn.deinit();
 
     {
-        // try conn.connectExtended(pg_connection_string);
         try conn.connectWithConfig(allocator, basic_connect_config);
         defer conn.disconnect();
 
@@ -49,7 +48,6 @@ pub fn main() anyerror!void {
 
     {
         // Connect to the DB create_example
-        // try conn.connectExtended(example_connection_string);
         try conn.connectWithConfig(allocator, example_connect_config);
         defer conn.disconnect();
 
@@ -58,26 +56,24 @@ pub fn main() anyerror!void {
 
         // We'll create a simple table called zdb_test with standard SQL. Just like the other queries that we've seen so far,
         // we're going to throw away the result set because we don't care about it here.
-        _ = try cursor.executeDirect(
-            allocator,
+        _ = try cursor.executeDirect(allocator,
             \\CREATE TABLE zdb_test
             \\(
             \\  id serial primary key,
             \\  first_name text,
             \\  age integer default 0
             \\)
-            , .{}
-        );
+        , .{});
 
         // There are several ways to insert data into a table using zdb
-        // If you want you can stick to executeDirect (although prepare + execute would probably make for sense in this case) and 
+        // If you want you can stick to executeDirect (although prepare + execute would probably make more sense in this case) and
         // execute the statements just like before - there's nothing inherently different about running an insert query vs. a select query
         // from zdb's perspective.
-        // 
+        //
         // Cursor provides a convenience function, "insert", that makes it a bit easier to insert several values at once. "insert" takes care
         // of binding parameters from a list of inserted items so that you don't have to handle it manually. However, "insert" does *not* write
         // queries for you - this isn't an ORM library.
-        //  
+        //
         // In this first example, we'll use a struct to set parameters. The number of fields on the struct must match the number of parameter slots
         // on the query, otherwise you'll get an error. **The names of the struct fields do not have to match the column names of the table**.
         const ZdbTest = struct {
@@ -91,7 +87,8 @@ pub fn main() anyerror!void {
             allocator,
             \\INSERT INTO zdb_test (first_name, age)
             \\VALUES (?, ?)
-            , [_]ZdbTest{ .{ .first_name = "Joe", .age = 20 }, .{ .first_name = "Jane", .age = 35 } },
+        ,
+            [_]ZdbTest{ .{ .first_name = "Joe", .age = 20 }, .{ .first_name = "Jane", .age = 35 } },
         );
 
         // Another option is to use a tuple - this is a nice demonstration of how the parameter binding is positional, not related to the
@@ -101,7 +98,10 @@ pub fn main() anyerror!void {
             allocator,
             \\INSERT INTO zdb_test (first_name, age)
             \\VALUES (?, ?)
-            , [_]InsertTuple{ .{ "GiGi", 85 }}
+        ,
+            [_]InsertTuple{
+                .{ "GiGi", 85 },
+            },
         );
 
         // If you are only binding one parameter in the insert query, you don't have to create a struct/tuple to pass params. Single params can be passed
@@ -117,7 +117,7 @@ pub fn main() anyerror!void {
         // then we would get an incorrect binding.
         var result_set = try cursor.executeDirect(allocator, "select first_name, age from zdb_test where age < ?", .{40});
 
-        // ResultSet has two ways of fetching results from the DB - ItemIterator and RowIterator. In this example we're using ItemIterator. This 
+        // ResultSet has two ways of fetching results from the DB - ItemIterator and RowIterator. In this example we're using ItemIterator. This
         // will bind rows to structs, allowing you to directly convert query results to Zig data types. This is useful if you know what columns you'll
         // be extracting ahead of time and can design structs around your queries (or vice versa).
         //
@@ -133,9 +133,8 @@ pub fn main() anyerror!void {
         while (try result_iter.next()) |item| {
             // Since we're getting ZdbTest's out of this iterator, we get to directly access our data through struct fields.
             std.debug.print("First Name: {s}\n", .{item.first_name});
-            std.debug.print("Age: {}\n", .{item.age});    
+            std.debug.print("Age: {}\n", .{item.age});
         }
-
     }
 
     {
@@ -154,5 +153,4 @@ pub fn main() anyerror!void {
             return err;
         };
     }
-
 }

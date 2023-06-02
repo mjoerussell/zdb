@@ -33,13 +33,13 @@ pub fn main() anyerror!void {
         // Query results can be fetched using the ResultSet value returned by executeDirect. We don't care about the result set
         // of this query, so we'll ignore it.
         _ = try cursor.executeDirect(allocator, "CREATE DATABASE create_example WITH OWNER = postgres", .{});
-    }   
+    }
 
     // Now that the new DB was created we can connect to it. We'll use the same options as the original connection,
     // except with the database field set to "create_example".
     var db_connect_config = basic_connect_config;
     db_connect_config.database = "create_example";
-    
+
     {
         // For now, we'll just connect and disconnect without doing anything.
         try conn.connectWithConfig(allocator, db_connect_config);
@@ -56,5 +56,4 @@ pub fn main() anyerror!void {
 
         _ = try cursor.executeDirect(allocator, "DROP DATABASE create_example", .{});
     }
-
 }

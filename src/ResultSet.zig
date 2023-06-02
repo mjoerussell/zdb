@@ -21,7 +21,7 @@ const ResultSet = @This();
 ///    field2: []const u8,
 ///    field3: ?[]const u8
 /// };
-/// 
+///
 /// // Becomes....
 ///
 /// const FetchResult(Base).RowType = extern struct {
@@ -34,7 +34,7 @@ const ResultSet = @This();
 /// };
 /// ```
 pub fn FetchResult(comptime Target: type) type {
-    const TypeInfo = std.builtin.TypeInfo;
+    const Type = std.builtin.Type;
     const TargetInfo = @typeInfo(Target);
 
     switch (TargetInfo) {
@@ -42,14 +42,14 @@ pub fn FetchResult(comptime Target: type) type {
             const R = extern struct {};
             var ResultInfo = @typeInfo(R);
 
-            var result_fields: [TargetInfo.Struct.fields.len * 2]TypeInfo.StructField = undefined;
-            inline for (TargetInfo.Struct.fields) |field, i| {
+            var result_fields: [TargetInfo.Struct.fields.len * 2]Type.StructField = undefined;
+            inline for (TargetInfo.Struct.fields, 0..) |field, i| {
                 // Initialize all the fields of the StructField
                 result_fields[i * 2] = field;
 
                 // Get the target type of the generated struct
-                const field_type_info = @typeInfo(field.field_type);
-                const column_type = if (field_type_info == .Optional) field_type_info.Optional.child else field.field_type;
+                const field_type_info = @typeInfo(field.type);
+                const column_type = if (field_type_info == .Optional) field_type_info.Optional.child else field.type;
                 const column_field_type = switch (@typeInfo(column_type)) {
                     .Pointer => |info| switch (info.size) {
                         .Slice => [200]info.child,
@@ -61,10 +61,10 @@ pub fn FetchResult(comptime Target: type) type {
 
                 // Reset the field_type and default_value to be whatever was calculated
                 // (default value is reset to null because it has to be a null of the correct type)
-                result_fields[i * 2].field_type = column_field_type;
+                result_fields[i * 2].type = column_field_type;
                 result_fields[i * 2].default_value = null;
                 // Generate the len_or_ind field to coincide with the main column field
-                result_fields[(i * 2) + 1] = TypeInfo.StructField{ .name = field.name ++ "_len_or_ind", .field_type = c_longlong, .default_value = null, .is_comptime = false, .alignment = @alignOf(c_longlong) };
+                result_fields[(i * 2) + 1] = Type.StructField{ .name = field.name ++ "_len_or_ind", .type = i64, .default_value = null, .is_comptime = false, .alignment = @alignOf(c_longlong) };
             }
 
             ResultInfo.Struct.fields = result_fields[0..];
@@ -81,7 +81,7 @@ pub fn FetchResult(comptime Target: type) type {
                         const row_data = @field(row, field.name);
                         const len_or_indicator = @field(row, field.name ++ "_len_or_ind");
 
-                        const field_type_info = @typeInfo(field.field_type);
+                        const field_type_info = @typeInfo(field.type);
                         if (len_or_indicator == odbc.sys.SQL_NULL_DATA) {
                             // Handle null data. For Optional types, set the field to null. For non-optional types with
                             // a default value given, set the field to the default value. For all others, return
@@ -115,7 +115,7 @@ pub fn FetchResult(comptime Target: type) type {
                                     else => row_data,
                                 },
                                 // Convert enums back from their backing type to the enum value
-                                .Enum => @intToEnum(field.field_type, row_data),
+                                .Enum => @intToEnum(field.type, row_data),
                                 // All other data types can go right back
                                 else => row_data,
                             };
@@ -210,7 +210,7 @@ pub const Row = struct {
     /// Get a value from a column using the column name. Will attempt to convert whatever bytes
     /// are stored for the column into `ColumnType`.
     pub fn get(self: *Row, comptime ColumnType: type, column_name: []const u8) !ColumnType {
-        const column_index = for (self.columns) |column, index| {
+        const column_index = for (self.columns, 0..) |column, index| {
             if (std.mem.eql(u8, column.name, column_name)) break index;
         } else return error.ColumnNotFound;
 
@@ -239,7 +239,7 @@ pub const Row = struct {
     }
 
     pub fn printColumn(row: *Row, column_name: []const u8, comptime format_options: FormatOptions, writer: anytype) !void {
-        const column_index = for (row.columns) |column, index| {
+        const column_index = for (row.columns, 0..) |column, index| {
             if (std.mem.eql(u8, column.name, column_name)) break index;
         } else return error.ColumnNotFound;
 
@@ -411,22 +411,22 @@ fn ItemIterator(comptime ItemType: type) type {
                 comptime if (std.mem.endsWith(u8, field.name, "_len_or_ind")) continue;
 
                 const c_type = comptime blk: {
-                    if (odbc.Types.CType.fromType(field.field_type)) |c_type| {
+                    if (odbc.Types.CType.fromType(field.type)) |c_type| {
                         break :blk c_type;
                     } else {
-                        @compileError("CType could not be derived for " ++ @typeName(ItemType) ++ "." ++ field.name ++ " (" ++ @typeName(field.field_type) ++ ")");
+                        @compileError("CType could not be derived for " ++ @typeName(ItemType) ++ "." ++ field.name ++ " (" ++ @typeName(field.type) ++ ")");
                     }
                 };
 
-                const FieldTypeInfo = @typeInfo(field.field_type);
-                const FieldDataType = switch (FieldTypeInfo) {
+                const FieldType = @typeInfo(field.type);
+                const FieldDataType = switch (FieldType) {
                     .Pointer => |info| info.child,
                     .Array => |info| info.child,
-                    else => field.field_type,
+                    else => field.type,
                 };
 
-                const value_ptr: []FieldDataType = switch (FieldTypeInfo) {
-                    .Pointer => switch (FieldTypeInfo.Pointer.size) {
+                const value_ptr: []FieldDataType = switch (FieldType) {
+                    .Pointer => switch (FieldType.Pointer.size) {
                         .One => @ptrCast([*]FieldDataType, @field(self.rows[0], field.name))[0..1],
                         else => @field(self.rows[0], field.name)[0..],
                     },
@@ -434,7 +434,7 @@ fn ItemIterator(comptime ItemType: type) type {
                     else => @ptrCast([*]FieldDataType, &@field(self.rows[0], field.name))[0..1],
                 };
 
-                try self.statement.bindColumn(column_number, c_type, value_ptr, @ptrCast([*]c_longlong, &@field(self.rows[0], field.name ++ "_len_or_ind")), null);
+                try self.statement.bindColumn(column_number, c_type, value_ptr, @ptrCast([*]i64, &@field(self.rows[0], field.name ++ "_len_or_ind")), null);
 
                 column_number += 1;
             }
@@ -453,7 +453,7 @@ const RowIterator = struct {
         sql_type: odbc.Types.SqlType,
         data: []u8,
         octet_length: usize,
-        indicator: []c_longlong,
+        indicator: []i64,
 
         fn deinit(column: *Column, allocator: Allocator) void {
             allocator.free(column.name);
@@ -473,7 +473,7 @@ const RowIterator = struct {
 
     pub fn init(allocator: Allocator, statement: odbc.Statement, row_count: usize) !RowIterator {
         const num_columns = try statement.numResultColumns();
-        
+
         var columns = try allocator.alloc(Column, num_columns);
         errdefer {
             for (columns) |*c| c.deinit(allocator);
@@ -487,13 +487,14 @@ const RowIterator = struct {
         try statement.setAttribute(.{ .RowArraySize = row_count });
         try statement.setAttribute(.{ .RowStatusPointer = row_status });
 
-        for (columns) |*column, column_index| {
+        for (columns, 0..) |*column, column_index| {
             column.sql_type = (try statement.getColumnAttribute(allocator, column_index + 1, .Type)).Type;
             column.name = (try statement.getColumnAttribute(allocator, column_index + 1, .BaseColumnName)).BaseColumnName;
 
             column.octet_length = if (statement.getColumnAttribute(allocator, column_index + 1, .OctetLength)) |attr|
                 @intCast(usize, attr.OctetLength)
-            else |_| 0;
+            else |_|
+                0;
 
             if (column.octet_length == 0) {
                 const length = (try statement.getColumnAttribute(allocator, column_index + 1, .Length)).Length;
@@ -501,7 +502,7 @@ const RowIterator = struct {
             }
 
             column.data = try allocator.alloc(u8, row_count * column.octet_length);
-            column.indicator = try allocator.alloc(c_longlong, row_count);
+            column.indicator = try allocator.alloc(i64, row_count);
 
             try statement.bindColumn(@intCast(u16, column_index + 1), column.sql_type.defaultCType(), column.data, column.indicator.ptr, column.octet_length);
         }
@@ -541,7 +542,7 @@ const RowIterator = struct {
 
                 switch (row_status) {
                     .Success, .SuccessWithInfo, .Error => {
-                        for (self.row.columns) |*row_column, column_index| {
+                        for (self.row.columns, 0..) |*row_column, column_index| {
                             const current_column = self.columns[column_index];
                             row_column.name = current_column.name;
 
@@ -556,7 +557,6 @@ const RowIterator = struct {
                     },
                     else => {},
                 }
-
             }
         }
     }

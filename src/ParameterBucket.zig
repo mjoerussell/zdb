@@ -20,19 +20,18 @@ pub const SqlParameter = struct {
     /// it will be converted here to `i64` or `f64`, respectively.
     pub fn default(value: anytype) SqlParameter {
         const ValueType = EraseComptime(@TypeOf(value));
-        
+
         return SqlParameter{
             .sql_type = comptime odbc.Types.SqlType.fromType(ValueType) orelse @compileError("Cannot get default SqlType for type " ++ @typeName(ValueType)),
             .c_type = comptime odbc.Types.CType.fromType(ValueType) orelse @compileError("Cannot get default CType for type " ++ @typeName(ValueType)),
-            .precision = if (std.meta.trait.isFloat(@TypeOf(value))) 6 else null, 
+            .precision = if (std.meta.trait.isFloat(@TypeOf(value))) 6 else null,
         };
     }
 };
 
-
 // @todo I think that it's actually going to be beneficial to return to the original design of ParameterBucket which used a []u8 to hold
 //       all of the param data. That idea wasn't the problem, the problem is that I didn't work hard enough to build a system that can properly
-//       realloc/move data when the user wants to replace values. 
+//       realloc/move data when the user wants to replace values.
 //
 //       This design actually has a big disadvantage which is that every parameter that gets set needs to be separately allocated in order to produce
 //       a *anyopaque to store in Param. With the []u8 approach, extra space will need to be reallocated much more rarely since the data will be stored
@@ -84,7 +83,7 @@ pub fn set(bucket: *ParameterBucket, allocator: Allocator, param_data: anytype, 
 
     const data_buffer: []const u8 = if (comptime std.meta.trait.isZigString(ParamType))
         param_data
-    else 
+    else
         &std.mem.toBytes(@as(ParamType, param_data));
 
     bucket.indicators[param_index] = @intCast(c_longlong, data_buffer.len);
@@ -101,7 +100,7 @@ pub fn set(bucket: *ParameterBucket, allocator: Allocator, param_data: anytype, 
         const new_data_end_index = data_index + data_buffer.len;
 
         const copy_dest = bucket.data[new_data_end_index..];
-        const copy_src = bucket.data[original_data_end_index..original_data_end_index + remaining_param_size];
+        const copy_src = bucket.data[original_data_end_index .. original_data_end_index + remaining_param_size];
 
         if (data_buffer.len < data_indicator) {
             // If the new len is smaller than the old one, then just move the remaining params
@@ -116,7 +115,7 @@ pub fn set(bucket: *ParameterBucket, allocator: Allocator, param_data: anytype, 
             std.mem.copyBackwards(u8, copy_dest, copy_src);
         }
     }
-    
+
     std.mem.copy(u8, bucket.data[data_index..], data_buffer);
 
     return Param{
@@ -149,13 +148,13 @@ test "add parameter to ParameterBucket" {
     const allocator = std.testing.allocator;
 
     var bucket = try ParameterBucket.init(allocator, 5);
-    defer bucket.deinit();
+    defer bucket.deinit(allocator);
 
     var param_value: u32 = 10;
 
-    const param = try bucket.addParameter(0, param_value);
+    const param = try bucket.set(allocator, param_value, 0);
 
-    const param_data = @ptrCast([*]u8, param.param)[0..@intCast(usize, param.indicator.*)];
+    const param_data = @ptrCast([*]u8, param.data)[0..@intCast(usize, param.indicator.*)];
     try std.testing.expectEqualSlices(u8, std.mem.toBytes(param_value)[0..], param_data);
 }
 
@@ -163,13 +162,12 @@ test "add string parameter to ParameterBucket" {
     const allocator = std.testing.allocator;
 
     var bucket = try ParameterBucket.init(allocator, 5);
-    defer bucket.deinit();
+    defer bucket.deinit(allocator);
 
     var param_value = "some string value";
 
-    const param = try bucket.addParameter(0, param_value);
+    const param = try bucket.set(allocator, param_value, 0);
 
-    const param_data = @ptrCast([*]u8, param.param)[0..@intCast(usize, param.indicator.*)];
+    const param_data = @ptrCast([*]u8, param.data)[0..@intCast(usize, param.indicator.*)];
     try std.testing.expectEqualStrings(param_value, param_data);
 }
-
