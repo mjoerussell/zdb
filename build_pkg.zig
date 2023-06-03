@@ -7,8 +7,8 @@ pub fn buildPkg(b: *std.Build, exe: *CompileStep, package_name: []const u8, zdb_
 
     const odbc_library_name = if (builtin.os.tag == .windows) "odbc32" else "odbc";
     if (builtin.os.tag == .macos) {
-        exe.addIncludeDir("/usr/local/include");
-        exe.addIncludeDir("/usr/local/lib");
+        exe.addIncludePath("/usr/local/include");
+        exe.addIncludePath("/usr/local/lib");
     }
 
     exe.linkSystemLibrary(odbc_library_name);
