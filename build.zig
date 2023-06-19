@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = std.builtin;
-const buildOdbc = @import("zig-odbc/build_pkg.zig").buildPkg;
-const buildZdb = @import("build_pkg.zig").buildPkg;
+const CompileStep = std.build.CompileStep;
 
 const test_files = .{
     "src/ParameterBucket.zig",
@@ -38,10 +37,29 @@ const examples = [_]Example{
 };
 
 pub fn build(b: *std.build.Builder) !void {
-    // Standard release options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
+
+    const zig_odbc_dep = b.dependency("zig_odbc", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    var zdb_module = b.createModule(.{
+        .source_file = .{ .path = "src/zdb.zig" },
+        .dependencies = &.{
+            .{ .name = "odbc", .module = zig_odbc_dep.module("zig-odbc") },
+        },
+    });
+
+    var lib = b.addStaticLibrary(.{
+        .name = "zdb",
+        .optimize = optimize,
+        .target = target,
+    });
+
+    const odbc_lib = zig_odbc_dep.artifact("odbc");
+    lib.linkLibrary(odbc_lib);
 
     inline for (examples) |example| {
         const example_exe = b.addExecutable(.{
@@ -51,7 +69,9 @@ pub fn build(b: *std.build.Builder) !void {
             .target = target,
         });
 
-        try buildZdb(b, example_exe, "zdb", ".");
+        example_exe.addModule("zdb", zdb_module);
+        example_exe.linkLibrary(odbc_lib);
+
         const install_step = b.addInstallArtifact(example_exe);
 
         const run_cmd = b.addRunArtifact(example_exe);
@@ -68,8 +88,7 @@ pub fn build(b: *std.build.Builder) !void {
             .target = target,
         });
 
-        buildOdbc(tests, "odbc");
-
+        tests.linkLibrary(odbc_lib);
         test_step.dependOn(&tests.step);
     }
 }
