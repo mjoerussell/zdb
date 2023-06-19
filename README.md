@@ -14,29 +14,38 @@ To use zdb, follow these steps:
 Make sure you have an ODBC driver and driver manager installed already. On Windows, this should be pre-installed. On other
 systems, a good option is [`unixODBC`](http://www.unixodbc.org).
 
-### 1. Clone
+### 1. Add to `build.zig.zon`
 
-Include this repo in your project path. Best way to do this is by running
-
+```zig
+.{
+    .name = "",
+    .version = "",
+    .dependencies = .{
+        .zdb = .{
+            .url = "https://github.com/mjoerussell/zdb/<sha>.tar.gz",
+            .hash = "<hash>",
+        }
+    }
+}
 ```
-$ git submodule add https://github.com/mjoerussell/zdb --recurse-submodules
-$ cd zdb
-$ git submodule update --init --recursive
-```
 
-After this you should have **zdb** and also it's dependencies fully pulled into your project.
-
-### 2. Add to your project
-
-Add this to your project's `build.zig`:
+### 2. Add zdb module & artifact to your project
 
 ```zig
 
-const build_zdb = @import("zdb/build_pkg.zig");
-
 pub fn build(b: *std.build.Builder) void {
-    // ...
-    build_zdb.buildPkg(exe, "zdb");
+    // Create executable "exe"
+    
+    var zdb_dep = b.dependency("zdb", .{
+        .target = target,
+        .optimize = optimize,
+    }); 
+
+    const zdb_module = zdb_dep.module("zdb");
+    const zdb_lib = zdb_dep.artifact("zdb");
+
+    exe.addModule("zdb", zdb_module);
+    exe.linkLibrary(zdb_lib);
 }
 ```
 
