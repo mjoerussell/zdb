@@ -4,8 +4,8 @@
 
 	.dependencies = .{
 		.zig_odbc = .{
-			.url = "https://github.com/mjoerussell/zig-odbc/archive/63e0d74cf088ec5a2cebeae0bb8fdc6576f7da05.tar.gz",
-			.hash = "1220eec9d9dd6fed51be86f1fdf244434f45fc0933a2dad9aa98f350a737092ad713",
+			.url = "https://github.com/mjoerussell/zig-odbc/archive/adeff067d2e5435746575093c63d7fdbb48de436.tar.gz",
+			.hash = "12207d157202689ea4637bb651393dbd67caf90e85e4080ecf7d0a9400073a999fd6",
 		},
 	},
 }
