@@ -156,7 +156,7 @@ pub fn insert(cursor: *Cursor, allocator: Allocator, insert_statement: []const u
             },
             .Enum => {
                 if (num_params != 1) return error.WrongParamCount;
-                const enum_value = @enumToInt(value);
+                const enum_value = @intFromEnum(value);
                 try cursor.bindParameter(allocator, value_index + 1, enum_value);
             },
             .EnumLiteral => {
@@ -278,7 +278,7 @@ pub fn bindParameter(cursor: *Cursor, allocator: Allocator, index: usize, parame
     const stored_param = try cursor.parameters.set(allocator, parameter, index - 1);
     const sql_param = ParameterBucket.SqlParameter.default(parameter);
     try cursor.statement.bindParameter(
-        @intCast(u16, index),
+        @as(u16, @intCast(index)),
         .Input,
         sql_param.c_type,
         sql_param.sql_type,

@@ -76,24 +76,24 @@ pub fn set(bucket: *ParameterBucket, allocator: Allocator, param_data: anytype, 
 
     var data_index: usize = 0;
     for (bucket.indicators[0..param_index]) |indicator| {
-        data_index += @intCast(usize, indicator);
+        data_index += @as(usize, @intCast(indicator));
     }
 
-    const data_indicator = @intCast(usize, bucket.indicators[param_index]);
+    const data_indicator = @as(usize, @intCast(bucket.indicators[param_index]));
 
     const data_buffer: []const u8 = if (comptime std.meta.trait.isZigString(ParamType))
         param_data
     else
         &std.mem.toBytes(@as(ParamType, param_data));
 
-    bucket.indicators[param_index] = @intCast(c_longlong, data_buffer.len);
+    bucket.indicators[param_index] = @as(c_longlong, @intCast(data_buffer.len));
 
     if (data_buffer.len != data_indicator) {
         // If the new len is not the same as the old one, then some adjustments have to be made to the rest of
         // the params
         var remaining_param_size: usize = 0;
         for (bucket.indicators[param_index..]) |ind| {
-            remaining_param_size += @intCast(usize, ind);
+            remaining_param_size += @as(usize, @intCast(ind));
         }
 
         const original_data_end_index = data_index + data_indicator;
@@ -119,7 +119,7 @@ pub fn set(bucket: *ParameterBucket, allocator: Allocator, param_data: anytype, 
     std.mem.copy(u8, bucket.data[data_index..], data_buffer);
 
     return Param{
-        .data = @ptrCast(*anyopaque, &bucket.data[data_index]),
+        .data = @as(*anyopaque, @ptrCast(&bucket.data[data_index])),
         .indicator = &bucket.indicators[param_index],
     };
 }
@@ -154,7 +154,7 @@ test "add parameter to ParameterBucket" {
 
     const param = try bucket.set(allocator, param_value, 0);
 
-    const param_data = @ptrCast([*]u8, param.data)[0..@intCast(usize, param.indicator.*)];
+    const param_data = @as([*]u8, @ptrCast(param.data))[0..@as(usize, @intCast(param.indicator.*))];
     try std.testing.expectEqualSlices(u8, std.mem.toBytes(param_value)[0..], param_data);
 }
 
@@ -168,6 +168,6 @@ test "add string parameter to ParameterBucket" {
 
     const param = try bucket.set(allocator, param_value, 0);
 
-    const param_data = @ptrCast([*]u8, param.data)[0..@intCast(usize, param.indicator.*)];
+    const param_data = @as([*]u8, @ptrCast(param.data))[0..@as(usize, @intCast(param.indicator.*))];
     try std.testing.expectEqualStrings(param_value, param_data);
 }

@@ -16,40 +16,40 @@ pub inline fn sliceToValue(comptime T: type, slice: []u8) T {
     switch (@typeInfo(T)) {
         .Int => |info| {
             if (slice.len == 1) {
-                return @intCast(T, slice[0]);
+                return @as(T, @intCast(slice[0]));
             } else if (slice.len < 4) {
                 if (info.signedness == .unsigned) {
                     const int = std.mem.bytesToValue(u16, slice[0..2]);
-                    return @intCast(T, int);
+                    return @as(T, @intCast(int));
                 } else {
                     const int = std.mem.bytesToValue(i16, slice[0..2]);
-                    return @intCast(T, int);
+                    return @as(T, @intCast(int));
                 }
             } else if (slice.len < 8) {
                 if (info.signedness == .unsigned) {
                     const int = std.mem.bytesToValue(u32, slice[0..4]);
-                    return @intCast(T, int);
+                    return @as(T, @intCast(int));
                 } else {
                     const int = std.mem.bytesToValue(i32, slice[0..4]);
-                    return @intCast(T, int);
+                    return @as(T, @intCast(int));
                 }
             } else {
                 if (info.signedness == .unsigned) {
                     const int = std.mem.bytesToValue(u64, slice[0..8]);
-                    return @intCast(T, int);
+                    return @as(T, @intCast(int));
                 } else {
                     const int = std.mem.bytesToValue(i64, slice[0..8]);
-                    return @intCast(T, int);
+                    return @as(T, @intCast(int));
                 }
             }
         },
         .Float => {
             if (slice.len >= 4 and slice.len < 8) {
                 const float = std.mem.bytesToValue(f32, slice[0..4]);
-                return @floatCast(T, float);
+                return @as(T, @floatCast(float));
             } else {
                 const float = std.mem.bytesToValue(f64, slice[0..8]);
-                return @floatCast(T, float);
+                return @as(T, @floatCast(float));
             }
         },
         .Struct => {
@@ -60,7 +60,7 @@ pub inline fn sliceToValue(comptime T: type, slice: []u8) T {
         },
         else => {
             std.debug.assert(slice.len >= @sizeOf(T));
-            const ptr = @ptrCast(*const [@sizeOf(T)]u8, slice[0..@sizeOf(T)]);
+            const ptr = @as(*const [@sizeOf(T)]u8, @ptrCast(slice[0..@sizeOf(T)]));
             return std.mem.bytesToValue(T, ptr);
         },
     }

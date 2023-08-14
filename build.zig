@@ -72,7 +72,7 @@ pub fn build(b: *std.build.Builder) !void {
         example_exe.addModule("zdb", zdb_module);
         example_exe.linkLibrary(odbc_lib);
 
-        const install_step = b.addInstallArtifact(example_exe);
+        const install_step = b.addInstallArtifact(example_exe, .{});
 
         const run_cmd = b.addRunArtifact(example_exe);
         run_cmd.step.dependOn(&install_step.step);

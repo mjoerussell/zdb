@@ -37,97 +37,92 @@ pub fn FetchResult(comptime Target: type) type {
     const Type = std.builtin.Type;
     const TargetInfo = @typeInfo(Target);
 
-    switch (TargetInfo) {
-        .Struct => {
-            const R = extern struct {};
-            var ResultInfo = @typeInfo(R);
-
-            var result_fields: [TargetInfo.Struct.fields.len * 2]Type.StructField = undefined;
-            inline for (TargetInfo.Struct.fields, 0..) |field, i| {
-                // Initialize all the fields of the StructField
-                result_fields[i * 2] = field;
-
-                // Get the target type of the generated struct
-                const field_type_info = @typeInfo(field.type);
-                const column_type = if (field_type_info == .Optional) field_type_info.Optional.child else field.type;
-                const column_field_type = switch (@typeInfo(column_type)) {
-                    .Pointer => |info| switch (info.size) {
-                        .Slice => [200]info.child,
-                        else => column_type,
-                    },
-                    .Enum => |info| info.tag_type,
-                    else => column_type,
-                };
-
-                // Reset the field_type and default_value to be whatever was calculated
-                // (default value is reset to null because it has to be a null of the correct type)
-                result_fields[i * 2].type = column_field_type;
-                result_fields[i * 2].default_value = null;
-                // Generate the len_or_ind field to coincide with the main column field
-                result_fields[(i * 2) + 1] = Type.StructField{ .name = field.name ++ "_len_or_ind", .type = i64, .default_value = null, .is_comptime = false, .alignment = @alignOf(c_longlong) };
-            }
-
-            ResultInfo.Struct.fields = result_fields[0..];
-
-            const PrivateRowType = @Type(ResultInfo);
-
-            return struct {
-                pub const RowType = PrivateRowType;
-
-                pub fn toTarget(allocator: Allocator, row: RowType) error{ InvalidNullValue, OutOfMemory }!Target {
-                    var item: Target = undefined;
-                    inline for (std.meta.fields(Target)) |field| {
-                        @setEvalBranchQuota(1_000_000);
-                        const row_data = @field(row, field.name);
-                        const len_or_indicator = @field(row, field.name ++ "_len_or_ind");
-
-                        const field_type_info = @typeInfo(field.type);
-                        if (len_or_indicator == odbc.sys.SQL_NULL_DATA) {
-                            // Handle null data. For Optional types, set the field to null. For non-optional types with
-                            // a default value given, set the field to the default value. For all others, return
-                            // an error
-                            if (field_type_info == .Optional) {
-                                @field(item, field.name) = null;
-                            } else if (field.default_value) |default| {
-                                @field(item, field.name) = default;
-                            } else {
-                                return error.InvalidNullValue;
-                            }
-                        } else {
-                            // If the field in Base is optional, we just want to deal with its child type. The possibility of
-                            // the value being null was handled above, so we can assume it's not here
-                            const child_info = if (field_type_info == .Optional) @typeInfo(field_type_info.Optional.child) else field_type_info;
-                            @field(item, field.name) = switch (child_info) {
-                                .Pointer => |info| switch (info.size) {
-                                    .Slice => blk: {
-                                        // For slices, we want to allocate enough memory to hold the (presumably string) data
-                                        // The string length might be indicated by a null byte, or it might be in len_or_indicator.
-                                        const slice_length: usize = if (len_or_indicator == odbc.sys.SQL_NTS)
-                                            std.mem.indexOf(u8, row_data[0..], &.{0x00}) orelse row_data.len
-                                        else
-                                            @intCast(usize, len_or_indicator);
-
-                                        var data_slice = try allocator.alloc(info.child, slice_length);
-                                        std.mem.copy(info.child, data_slice, row_data[0..slice_length]);
-                                        break :blk data_slice;
-                                    },
-                                    // @warn I've never seen this come up so it might not be strictly necessary, also might be broken
-                                    else => row_data,
-                                },
-                                // Convert enums back from their backing type to the enum value
-                                .Enum => @intToEnum(field.type, row_data),
-                                // All other data types can go right back
-                                else => row_data,
-                            };
-                        }
-                    }
-
-                    return item;
-                }
-            };
-        },
-        else => @compileError("The base type of FetchResult must be a struct, found " ++ @typeName(Target)),
+    if (TargetInfo != .Struct) {
+        @compileError("The base type of FetchResult must be a struct, found " ++ @typeName(Target));
     }
+
+    const R = extern struct {};
+    var ResultInfo = @typeInfo(R);
+
+    var result_fields: [TargetInfo.Struct.fields.len * 2]Type.StructField = undefined;
+    inline for (TargetInfo.Struct.fields, 0..) |field, i| {
+        // Initialize all the fields of the StructField
+        result_fields[i * 2] = field;
+
+        // Get the target type of the generated struct
+        const field_type_info = @typeInfo(field.type);
+        const column_type = if (field_type_info == .Optional) field_type_info.Optional.child else field.type;
+        const column_field_type = switch (@typeInfo(column_type)) {
+            .Pointer => |info| switch (info.size) {
+                .Slice => [200]info.child,
+                else => column_type,
+            },
+            .Enum => |info| info.tag_type,
+            else => column_type,
+        };
+
+        // Reset the field_type and default_value to be whatever was calculated
+        // (default value is reset to null because it has to be a null of the correct type)
+        result_fields[i * 2].type = column_field_type;
+        result_fields[i * 2].default_value = null;
+        // Generate the len_or_ind field to coincide with the main column field
+        result_fields[(i * 2) + 1] = Type.StructField{ .name = field.name ++ "_len_or_ind", .type = i64, .default_value = null, .is_comptime = false, .alignment = @alignOf(c_longlong) };
+    }
+
+    ResultInfo.Struct.fields = result_fields[0..];
+
+    return @Type(ResultInfo);
+}
+
+fn toTarget(comptime Target: type, allocator: Allocator, row: FetchResult(Target)) error{ InvalidNullValue, OutOfMemory }!Target {
+    var item: Target = undefined;
+    inline for (std.meta.fields(Target)) |field| {
+        @setEvalBranchQuota(1_000_000);
+        const row_data = @field(row, field.name);
+        const len_or_indicator = @field(row, field.name ++ "_len_or_ind");
+
+        const field_type_info = @typeInfo(field.type);
+        if (len_or_indicator == odbc.sys.SQL_NULL_DATA) {
+            // Handle null data. For Optional types, set the field to null. For non-optional types with
+            // a default value given, set the field to the default value. For all others, return
+            // an error
+            if (field_type_info == .Optional) {
+                @field(item, field.name) = null;
+            } else if (field.default_value) |default| {
+                @field(item, field.name) = default;
+            } else {
+                return error.InvalidNullValue;
+            }
+        } else {
+            // If the field in Base is optional, we just want to deal with its child type. The possibility of
+            // the value being null was handled above, so we can assume it's not here
+            const child_info = if (field_type_info == .Optional) @typeInfo(field_type_info.Optional.child) else field_type_info;
+            @field(item, field.name) = switch (child_info) {
+                .Pointer => |info| switch (info.size) {
+                    .Slice => blk: {
+                        // For slices, we want to allocate enough memory to hold the (presumably string) data
+                        // The string length might be indicated by a null byte, or it might be in len_or_indicator.
+                        const slice_length: usize = if (len_or_indicator == odbc.sys.SQL_NTS)
+                            std.mem.indexOf(u8, row_data[0..], &.{0x00}) orelse row_data.len
+                        else
+                            @as(usize, @intCast(len_or_indicator));
+
+                        var data_slice = try allocator.alloc(info.child, slice_length);
+                        std.mem.copy(info.child, data_slice, row_data[0..slice_length]);
+                        break :blk data_slice;
+                    },
+                    // @warn I've never seen this come up so it might not be strictly necessary, also might be broken
+                    else => row_data,
+                },
+                // Convert enums back from their backing type to the enum value
+                .Enum => @as(field.type, @enumFromInt(row_data)),
+                // All other data types can go right back
+                else => row_data,
+            };
+        }
+    }
+
+    return item;
 }
 
 /// `Row` represents a single record for `ColumnBindingResultSet`.
@@ -191,7 +186,7 @@ pub const Row = struct {
                 return column.data[0..null_index];
             }
 
-            return column.data[0..@intCast(usize, column.indicator)];
+            return column.data[0..@as(usize, @intCast(column.indicator))];
         }
     };
 
@@ -316,7 +311,7 @@ pub const Row = struct {
 fn ItemIterator(comptime ItemType: type) type {
     return struct {
         pub const Self = @This();
-        pub const RowType = FetchResult(ItemType).RowType;
+        pub const RowType = FetchResult(ItemType);
 
         rows: []RowType,
         row_status: []RowStatus,
@@ -332,15 +327,13 @@ fn ItemIterator(comptime ItemType: type) type {
         /// Initialze the ResultSet with the given `row_count`. `row_count` will control how many results
         /// are fetched every time `statement.fetch()` is called.
         pub fn init(allocator: Allocator, statement: odbc.Statement, row_count: usize) !Self {
-            var result: Self = undefined;
-            result.statement = statement;
-            result.allocator = allocator;
-            result.rows_fetched = 0;
-            result.current_row = 0;
-            result.is_first = true;
-
-            result.rows = try allocator.alloc(RowType, row_count);
-            result.row_status = try allocator.alloc(RowStatus, row_count);
+            var result: Self = .{
+                .allocator = allocator,
+                .statement = statement,
+                .rows = try allocator.alloc(RowType, row_count),
+                .row_status = try allocator.alloc(RowStatus, row_count),
+            };
+            errdefer result.deinit();
 
             try result.statement.setAttribute(.{ .RowBindType = @sizeOf(RowType) });
             try result.statement.setAttribute(.{ .RowArraySize = row_count });
@@ -384,13 +377,13 @@ fn ItemIterator(comptime ItemType: type) type {
                     self.current_row = 0;
                 }
 
-                item_loop: while (self.current_row < self.rows_fetched and self.current_row < self.rows.len) : (self.current_row += 1) {
+                while (self.current_row < self.rows_fetched and self.current_row < self.rows.len) : (self.current_row += 1) {
                     switch (self.row_status[self.current_row]) {
                         .Success, .SuccessWithInfo, .Error => {
                             const item_row = self.rows[self.current_row];
                             self.current_row += 1;
-                            return FetchResult(ItemType).toTarget(self.allocator, item_row) catch |err| switch (err) {
-                                error.InvalidNullValue => continue :item_loop,
+                            return toTarget(ItemType, self.allocator, item_row) catch |err| switch (err) {
+                                error.InvalidNullValue => continue,
                                 else => return err,
                             };
                         },
@@ -427,14 +420,14 @@ fn ItemIterator(comptime ItemType: type) type {
 
                 const value_ptr: []FieldDataType = switch (FieldType) {
                     .Pointer => switch (FieldType.Pointer.size) {
-                        .One => @ptrCast([*]FieldDataType, @field(self.rows[0], field.name))[0..1],
+                        .One => @as([*]FieldDataType, @ptrCast(@field(self.rows[0], field.name)))[0..1],
                         else => @field(self.rows[0], field.name)[0..],
                     },
                     .Array => @field(self.rows[0], field.name)[0..],
-                    else => @ptrCast([*]FieldDataType, &@field(self.rows[0], field.name))[0..1],
+                    else => @as([*]FieldDataType, @ptrCast(&@field(self.rows[0], field.name)))[0..1],
                 };
 
-                try self.statement.bindColumn(column_number, c_type, value_ptr, @ptrCast([*]i64, &@field(self.rows[0], field.name ++ "_len_or_ind")), null);
+                try self.statement.bindColumn(column_number, c_type, value_ptr, @as([*]i64, @ptrCast(&@field(self.rows[0], field.name ++ "_len_or_ind"))), null);
 
                 column_number += 1;
             }
@@ -492,19 +485,19 @@ const RowIterator = struct {
             column.name = (try statement.getColumnAttribute(allocator, column_index + 1, .BaseColumnName)).BaseColumnName;
 
             column.octet_length = if (statement.getColumnAttribute(allocator, column_index + 1, .OctetLength)) |attr|
-                @intCast(usize, attr.OctetLength)
+                @as(usize, @intCast(attr.OctetLength))
             else |_|
                 0;
 
             if (column.octet_length == 0) {
                 const length = (try statement.getColumnAttribute(allocator, column_index + 1, .Length)).Length;
-                column.octet_length = @intCast(usize, length);
+                column.octet_length = @as(usize, @intCast(length));
             }
 
             column.data = try allocator.alloc(u8, row_count * column.octet_length);
             column.indicator = try allocator.alloc(i64, row_count);
 
-            try statement.bindColumn(@intCast(u16, column_index + 1), column.sql_type.defaultCType(), column.data, column.indicator.ptr, column.octet_length);
+            try statement.bindColumn(@as(u16, @intCast(column_index + 1)), column.sql_type.defaultCType(), column.data, column.indicator.ptr, column.octet_length);
         }
 
         return RowIterator{

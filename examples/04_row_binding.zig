@@ -1,6 +1,7 @@
 const std = @import("std");
-const zdb = @import("zdb");
+const Allocator = std.mem.Allocator;
 
+const zdb = @import("zdb");
 const Connection = zdb.Connection;
 
 pub fn main() anyerror!void {
@@ -27,6 +28,25 @@ pub fn main() anyerror!void {
         var cursor = try conn.getCursor(allocator);
         defer cursor.deinit(allocator) catch {};
 
+        var rs = try cursor.executeDirect(allocator, "SELECT * FROM pg_database WHERE datname = 'create_example'", .{});
+
+        var results = try rs.rowIterator(allocator);
+
+        const table_exists = if (results.next()) |value| value != null else |_| false;
+
+        if (table_exists) {
+            _ = try cursor.executeDirect(allocator, "DROP DATABASE create_example", .{});
+        }
+    }
+
+    {
+        try conn.connectWithConfig(allocator, basic_connect_config);
+        defer conn.disconnect();
+
+        var cursor = try conn.getCursor(allocator);
+        defer cursor.deinit(allocator) catch {};
+
+        // try createOrReplaceDb(allocator, &cursor, "create_example");
         _ = try cursor.executeDirect(allocator, "CREATE DATABASE create_example WITH OWNER = postgres", .{});
     }
 
@@ -119,3 +139,21 @@ pub fn main() anyerror!void {
         };
     }
 }
+
+// pub fn createOrReplaceDb(allocator: Allocator, cursor: *zdb.Cursor, table_name: []const u8) !void {
+//     var rs = try cursor.executeDirect(allocator, "SELECT * FROM pg_database WHERE datname = ?", .{table_name});
+
+//     var results = try rs.rowIterator(allocator);
+
+//     const table_exists = if (results.next()) |value| value != null else |_| false;
+
+//     if (table_exists) {
+//         // NEVER DO THIS IN REAL CODE
+//         const statement = try std.fmt.allocPrint(allocator, "DROP DATABASE {s}", .{table_name});
+//         defer allocator.free(statement);
+
+//         _ = try cursor.executeDirect(allocator, statement, .{});
+//     }
+
+//     _ = try cursor.executeDirect(allocator, "CREATE DATABASE create_example WITH OWNER = postgres", .{});
+// }
