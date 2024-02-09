@@ -1,0 +1,62 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15.3-alpine3.18
+    ports:
+      - "5432:5432"
+    volumes:
+      - .mounts/postgres:/var/lib/postgresql/data
+    user: postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mariadb:
+    image: mariadb:11.0.2
+    ports:
+      - "3306:3306"
+    volumes:
+      - .mounts/mariadb:/var/lib/mysql
+    environment:
+      - MARIADB_USER=mariadb
+      - MARIADB_PASSWORD=password
+      - MARIADB_ROOT_PASSWORD=password
+
+  db2:
+    image: icr.io/db2_community/db2:11.5.9.0
+    platform: linux/amd64
+    privileged: true
+    ports:
+      - 50000:50000
+    volumes:
+      - .mounts/db2:/database
+    environment:
+      - LICENSE=accept
+      - DB2INSTANCE=db2inst1
+      - DBNAME=testdb
+      - DB2INST1_PASSWORD=password
+      - BLU=false
+      - ENABLE_ORACLE_COMPATIBILITY=false
+      - UPDATEAVAIL=NO
+      - TO_CREATE_SAMPLEDB=false
+      - SAMPLEDB=false
+      - IS_OSXFS=true
+      - REPODB=false
+      - HADR_ENABLED=false
+      - PERSISTENT_HOME=false
+      - ETCD_ENDPOINT=
+      - ETCD_USERNAME=
+      - ETCD_PASSWORD=
+    healthcheck:
+      test: ["CMD", "/opt/ibm/db2/V11.5/bin/db2", "connect to testdb"]
+      interval: 10s
+      timeout: 10s
+      retries: 1000
+      start_period: 40s
