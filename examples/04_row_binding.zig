@@ -9,7 +9,7 @@ pub fn main() anyerror!void {
 
     // This example is the same as create_and_query_table, except we're going to see how to use RowIterator to fetch results instead of
     // ItemIterator.
-    var basic_connect_config = Connection.ConnectionConfig{
+    const basic_connect_config = Connection.ConnectionConfig{
         .driver = "PostgreSQL Unicode(x64)",
         .database = "postgres",
         .server = "localhost",
@@ -111,7 +111,7 @@ pub fn main() anyerror!void {
             // custom format strings based on the SQLType of the column, which can be checked on the Row struct. There are default
             // format strings defined for all SQLTypes already, so in most cases you don't have to specify anything and the data should
             // print in a predictable way
-            var stdout_writer = std.io.getStdOut().writer();
+            const stdout_writer = std.io.getStdOut().writer();
             try row.printColumn("age", .{}, stdout_writer);
 
             std.debug.print("\n", .{});

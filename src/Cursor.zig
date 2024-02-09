@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const odbc = @import("odbc");
+const odbc = @import("zig-odbc");
 const Statement = odbc.Statement;
 const Connection = odbc.Connection;
 
@@ -205,8 +205,8 @@ pub fn columns(cursor: *Cursor, allocator: Allocator, catalog_name: ?[]const u8,
     errdefer column_result.deinit();
 
     while (true) {
-        var result = column_iter.next() catch continue;
-        var column = result orelse break;
+        const result = column_iter.next() catch continue;
+        const column = result orelse break;
         try column_result.append(column);
     }
 
@@ -224,8 +224,8 @@ pub fn tables(cursor: *Cursor, allocator: Allocator, catalog_name: ?[]const u8, 
     errdefer table_result.deinit();
 
     while (true) {
-        var result = table_iter.next() catch continue;
-        var table = result orelse break;
+        const result = table_iter.next() catch continue;
+        const table = result orelse break;
         try table_result.append(table);
     }
 
@@ -243,8 +243,8 @@ pub fn tablePrivileges(cursor: *Cursor, allocator: Allocator, catalog_name: ?[]c
     errdefer priv_result.deinit();
 
     while (true) {
-        var result = priv_iter.next() catch continue;
-        var privilege = result orelse break;
+        const result = priv_iter.next() catch continue;
+        const privilege = result orelse break;
         try priv_result.append(privilege);
     }
 
@@ -261,7 +261,7 @@ pub fn catalogs(cursor: *Cursor, allocator: Allocator) ![][]const u8 {
     defer iter.deinit(allocator);
 
     while (true) {
-        var result = iter.next() catch continue;
+        const result = iter.next() catch continue;
         var row = result orelse break;
         const catalog_name = row.get([]const u8, "TABLE_CAT") catch continue;
 
