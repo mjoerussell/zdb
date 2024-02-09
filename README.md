@@ -130,3 +130,33 @@ const odbc = @import("zdb").odbc;
 ```
 
 Please see [zig-odbc](https://github.com/mjoerussell/zig-odbc) for more information about these bindings.
+
+## Nix Development Flake
+
+### Develop with Zig latest release
+
+```shell
+> nix develop -c $SHELL
+> zig version
+0.11.0
+```
+
+### Develop with Zig master
+
+```shell
+> nix develop .#master -c $SHELL
+> zig version
+0.12.0-dev.2644+42fcca49c
+```
+
+### Build
+
+```shell
+> zig build
+```
+
+### Tests
+
+```shell
+> zig build test
+```
