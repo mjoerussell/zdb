@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const odbc = @import("odbc");
+const odbc = @import("zig-odbc");
 const RowStatus = odbc.Types.StatementAttributeValue.RowStatus;
 const Statement = odbc.Statement;
 const CType = odbc.Types.CType;
@@ -107,7 +107,7 @@ fn toTarget(comptime Target: type, allocator: Allocator, row: FetchResult(Target
                         else
                             @as(usize, @intCast(len_or_indicator));
 
-                        var data_slice = try allocator.alloc(info.child, slice_length);
+                        const data_slice = try allocator.alloc(info.child, slice_length);
                         std.mem.copy(info.child, data_slice, row_data[0..slice_length]);
                         break :blk data_slice;
                     },
@@ -467,13 +467,13 @@ const RowIterator = struct {
     pub fn init(allocator: Allocator, statement: odbc.Statement, row_count: usize) !RowIterator {
         const num_columns = try statement.numResultColumns();
 
-        var columns = try allocator.alloc(Column, num_columns);
+        const columns = try allocator.alloc(Column, num_columns);
         errdefer {
             for (columns) |*c| c.deinit(allocator);
             allocator.free(columns);
         }
 
-        var row_status = try allocator.alloc(RowStatus, row_count);
+        const row_status = try allocator.alloc(RowStatus, row_count);
         errdefer allocator.free(row_status);
 
         try statement.setAttribute(.{ .RowBindType = odbc.sys.SQL_BIND_BY_COLUMN });

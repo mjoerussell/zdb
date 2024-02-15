@@ -8,7 +8,7 @@ pub fn main() anyerror!void {
 
     // In this example we'll create a new database and reconnect to it.
     // The beginning is the same as basic_connect
-    var basic_connect_config = Connection.ConnectionConfig{
+    const basic_connect_config = Connection.ConnectionConfig{
         .driver = "PostgreSQL Unicode(x64)",
         .database = "postgres",
         .server = "localhost",

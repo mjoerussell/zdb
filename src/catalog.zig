@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const odbc = @import("odbc");
+const odbc = @import("zig-odbc");
 
 /// Used for fetching column metadata from a database. Supports formatted printing by default.
 pub const Column = struct {

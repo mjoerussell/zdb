@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const odbc = @import("odbc");
+const odbc = @import("zig-odbc");
 
 const EraseComptime = @import("util.zig").EraseComptime;
 
@@ -45,7 +45,7 @@ data: []u8,
 indicators: []c_longlong,
 
 pub fn init(allocator: Allocator, num_params: usize) !ParameterBucket {
-    var indicators = try allocator.alloc(c_longlong, num_params);
+    const indicators = try allocator.alloc(c_longlong, num_params);
     errdefer allocator.free(indicators);
 
     for (indicators) |*i| i.* = 0;
@@ -81,10 +81,11 @@ pub fn set(bucket: *ParameterBucket, allocator: Allocator, param_data: anytype, 
 
     const data_indicator = @as(usize, @intCast(bucket.indicators[param_index]));
 
-    const data_buffer: []const u8 = if (comptime std.meta.trait.isZigString(ParamType))
-        param_data
-    else
-        &std.mem.toBytes(@as(ParamType, param_data));
+    // const data_buffer: []const u8 = if (comptime std.meta.trait.isZigString(ParamType))
+    //     param_data
+    // else
+    //     &std.mem.toBytes(@as(ParamType, param_data));
+    const data_buffer: []const u8 = &std.mem.toBytes(@as(ParamType, param_data));
 
     bucket.indicators[param_index] = @as(c_longlong, @intCast(data_buffer.len));
 
@@ -105,7 +106,7 @@ pub fn set(bucket: *ParameterBucket, allocator: Allocator, param_data: anytype, 
         if (data_buffer.len < data_indicator) {
             // If the new len is smaller than the old one, then just move the remaining params
             // forward
-            std.mem.copy(u8, copy_dest, copy_src);
+            std.mem.copyForwards(u8, copy_dest, copy_src);
         } else {
             // If the new len is bigger than the old one, then resize the buffer and then move the
             // remaining params backwards
@@ -116,7 +117,7 @@ pub fn set(bucket: *ParameterBucket, allocator: Allocator, param_data: anytype, 
         }
     }
 
-    std.mem.copy(u8, bucket.data[data_index..], data_buffer);
+    std.mem.copyForwards(u8, bucket.data[data_index..], data_buffer);
 
     return Param{
         .data = @as(*anyopaque, @ptrCast(&bucket.data[data_index])),
@@ -150,7 +151,7 @@ test "add parameter to ParameterBucket" {
     var bucket = try ParameterBucket.init(allocator, 5);
     defer bucket.deinit(allocator);
 
-    var param_value: u32 = 10;
+    const param_value: u32 = 10;
 
     const param = try bucket.set(allocator, param_value, 0);
 
@@ -164,7 +165,7 @@ test "add string parameter to ParameterBucket" {
     var bucket = try ParameterBucket.init(allocator, 5);
     defer bucket.deinit(allocator);
 
-    var param_value = "some string value";
+    const param_value = "some string value";
 
     const param = try bucket.set(allocator, param_value, 0);
 

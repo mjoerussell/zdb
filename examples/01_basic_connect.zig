@@ -8,7 +8,7 @@ pub fn main() anyerror!void {
 
     // The first step to using zdb is creating your data source. In this example we'll use the default postgres
     // settings and connect without using a DSN.
-    var connection_info = Connection.ConnectionConfig{
+    const connection_info = Connection.ConnectionConfig{
         .driver = "PostgreSQL Unicode(x64)",
         .database = "postgres",
         .server = "localhost",
@@ -31,7 +31,7 @@ pub fn main() anyerror!void {
 
     // We'll run a simple operation on this DB to start - simply querying all the database names assocaiated with this
     // connection. Since we connected to a specific DB above, this should only return "postgres"
-    var catalogs = try cursor.catalogs(allocator);
+    const catalogs = try cursor.catalogs(allocator);
     defer allocator.free(catalogs);
 
     std.debug.print("Got {} catalogs\n", .{catalogs.len});

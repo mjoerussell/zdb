@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const odbc = @import("odbc");
+const odbc = @import("zig-odbc");
 
 const Cursor = @import("Cursor.zig");
 
@@ -68,7 +68,7 @@ pub fn connect(conn: *Connection, server_name: []const u8, username: []const u8,
 /// Connect to a database using a ConnectionConfig. The config will be converted to a connection string, and then
 /// it will attempt to connect using connectExtended.
 pub fn connectWithConfig(conn: *Connection, allocator: Allocator, connection_config: ConnectionConfig) !void {
-    var connection_string = try connection_config.getConnectionString(allocator);
+    const connection_string = try connection_config.getConnectionString(allocator);
     defer allocator.free(connection_string);
 
     try conn.connection.connectExtended(connection_string, .NoPrompt);
@@ -116,5 +116,5 @@ test "ConnectionInfo" {
     const connection_string = try connection_info.getConnectionString(allocator);
     defer allocator.free(connection_string);
 
-    try std.testing.expectEqualStrings("DRIVER=A Driver;DSN=Some DSN Value;UID=User;PWD=Password", connection_string);
+    try std.testing.expectEqualStrings("DRIVER={A Driver};DSN=Some DSN Value;UID=User;PWD=Password;", connection_string);
 }
